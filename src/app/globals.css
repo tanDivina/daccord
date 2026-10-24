@@ -59,3 +59,8 @@ body {
     linear-gradient(to right, rgba(255, 255, 255, 0.02) 1px, transparent 1px),
     linear-gradient(to bottom, rgba(255, 255, 255, 0.02) 1px, transparent 1px);
 }
+
+/* Accent for the custom icon set (src/components/icons.tsx) */
+:root {
+  --icon-accent: #a8ff35;
+}

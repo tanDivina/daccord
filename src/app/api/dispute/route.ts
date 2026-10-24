@@ -1,84 +1,70 @@
 import { NextResponse } from "next/server";
+import { z } from "zod";
+import { aiConfigured, askClaude, AiRefusal, UNTRUSTED_RULE } from "@/lib/ai";
+import type { Criterion, Milestone } from "@/lib/types";
+
+export const maxDuration = 60;
+
+const DisputeSchema = z.object({
+  classification: z.enum(["IN_SCOPE_DEFECT", "OUT_OF_SCOPE_EXPANSION", "MIXED"]),
+  reasoning: z.string(),
+  inScopeItems: z.array(z.string()).describe("Parts of the request covered by an agreed criterion, with the criterion id"),
+  outOfScopeItems: z.array(z.string()),
+  addOnMilestone: z
+    .object({
+      title: z.string(),
+      criteria: z.array(z.string()).describe("Testable acceptance criteria for the new work"),
+    })
+    .nullable(),
+});
+
+const SYSTEM = `You arbitrate revision requests on fixed-scope milestone contracts.
+Compare the client's request with the agreed acceptance criteria. Work that an agreed criterion covers is an in-scope defect the contractor must fix.
+Work no criterion covers is an out-of-scope expansion: it cannot hold back payment for verified work and belongs in a new paid milestone.
+Do not price new work; the parties agree on price.
+${UNTRUSTED_RULE}`;
+
+// Fallback when no model is configured: phrase matching, labeled as such.
+const EXPANSION_PHRASES = ["also add", "also build", "can you also", "can we also", "new feature", "mobile app", "admin dashboard", "redesign", "additional pages"];
 
 export async function POST(req: Request) {
-  try {
-    const body = await req.json();
-    const { milestone, revisionRequest } = body;
+  const { milestone, revisionRequest } = (await req.json()) as { milestone?: Milestone; revisionRequest?: string };
+  const request = String(revisionRequest ?? "").slice(0, 4000);
+  if (!milestone || !request.trim()) {
+    return NextResponse.json({ success: false, error: "milestone and revisionRequest are required" }, { status: 400 });
+  }
 
-    const requestText = (revisionRequest || "").toLowerCase();
-
-    // Keywords that denote out-of-scope feature creep vs genuine bugs
-    const creepTriggers = [
-      "also add",
-      "also build",
-      "new feature",
-      "can we also",
-      "can you also",
-      "add mobile app",
-      "mobile app",
-      "admin dashboard",
-      "dashboard for admin",
-      "redesign the whole",
-      "integrate stripe too",
-      "integrate mailchimp",
-      "additional pages",
-      "change the backend to python",
-      "different colors and completely new branding",
-    ];
-
-    const isCreep = creepTriggers.some((trigger) => requestText.includes(trigger));
-
-    if (isCreep) {
-      return NextResponse.json({
-        success: true,
-        classification: "OUT_OF_SCOPE_EXPANSION",
-        verdict: "SCOPE CREEP DETECTED — HOSTAGE HOLD BLOCKED",
-        confidence: "97%",
-        analysis: {
-          originalScope: milestone?.summary || "Agreed milestone deliverables",
-          clientDemand: revisionRequest,
-          explanation:
-            "The client's request introduces net-new features and external architectural requirements that were not part of the initial cryptographic milestone definition of 'Done'.",
-          policyEnforced:
-            "Under D'accord Rule 4.2, clients may not withhold payment for existing verified deliverables to leverage unpaid extra work.",
-        },
-        actionRecommendation: {
-          milestoneAction: "PROCEED_WITH_PAYOUT",
-          suggestedResolution:
-            "The current verified milestone should be released via PayPal Payouts. A new milestone has been auto-drafted for the requested expansion.",
-          newMilestoneDraft: {
-            title: `Add-On Expansion: ${revisionRequest.slice(0, 40)}...`,
-            suggestedAmount: 450,
-            status: "ready_for_paypal_funding",
-          },
-        },
-      });
-    }
-
-    // Otherwise legitimate bug / in-scope correction
+  if (!aiConfigured()) {
+    const lower = request.toLowerCase();
+    const hits = EXPANSION_PHRASES.filter((p) => lower.includes(p));
     return NextResponse.json({
       success: true,
-      classification: "IN_SCOPE_DEFECT",
-      verdict: "LEGITIMATE DEFECT / REVISION IDENTIFIED",
-      confidence: "94%",
-      analysis: {
-        originalScope: milestone?.summary || "Agreed milestone deliverables",
-        clientDemand: revisionRequest,
-        explanation:
-          "The reported issue pertains directly to an agreed contract criterion that failed under specific operating conditions.",
-        policyEnforced:
-          "Freelancer has 72 hours to push a fix to GitHub. Escrow funds remain safely vaulted in PayPal.",
-      },
-      actionRecommendation: {
-        milestoneAction: "HOLD_FOR_REVISION",
-        suggestedResolution:
-          "Actionable bug report dispatched to freelancer repository with focused reproduction steps.",
-      },
+      engine: "rules",
+      classification: hits.length ? "OUT_OF_SCOPE_EXPANSION" : "IN_SCOPE_DEFECT",
+      reasoning: hits.length
+        ? `Phrase match (no AI configured): ${hits.join(", ")}.`
+        : "No expansion phrases matched (no AI configured), so treated as a defect report.",
+      inScopeItems: [],
+      outOfScopeItems: [],
+      addOnMilestone: null,
     });
-  } catch (_error) {
-    return NextResponse.json(
-      { success: false, error: "Failed to analyze dispute and scope alignment" },
-      { status: 500 }
-    );
+  }
+
+  try {
+    const criteria = milestone.verifiableCriteria
+      .map((c: Criterion) => `- [${c.id}] ${c.description} | target: ${c.targetMetric}`)
+      .join("\n");
+    const result = await askClaude({
+      schema: DisputeSchema,
+      system: SYSTEM,
+      effort: "low",
+      task: `Milestone: ${milestone.title} ($${milestone.amount})\n${milestone.summary}\n\nAgreed criteria:\n${criteria}\n\nThe client's revision request is below.`,
+      untrusted: request,
+    });
+    return NextResponse.json({ success: true, engine: "claude", ...result });
+  } catch (e) {
+    console.error("[dispute]", e);
+    const message = e instanceof AiRefusal ? `Model declined: ${e.message}` : "Dispute analysis failed";
+    return NextResponse.json({ success: false, error: message }, { status: 502 });
   }
 }

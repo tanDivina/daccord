@@ -1,20 +1,11 @@
 import { NextResponse } from "next/server";
+import { z } from "zod";
+import { aiConfigured, askClaude, AiRefusal } from "@/lib/ai";
+import type { Contract, Milestone } from "@/lib/types";
 
-export interface Milestone {
-  id: string;
-  title: string;
-  amount: number;
-  summary: string;
-  verifiableCriteria: {
-    id: string;
-    description: string;
-    verificationType: "ci_test" | "ast_analysis" | "endpoint_health" | "ui_contract";
-    targetMetric: string;
-  }[];
-  status: "pending_funding" | "funded" | "in_review" | "verified_released" | "disputed";
-}
+export const maxDuration = 60;
 
-const PRESET_CONTRACTS: Record<string, { title: string; budget: number; milestones: Milestone[] }> = {
+const PRESET_CONTRACTS: Record<string, Contract> = {
   ecommerce_api: {
     title: "PayPal Orders & Subscriptions Backend Microservice",
     budget: 2400,
@@ -54,7 +45,7 @@ const PRESET_CONTRACTS: Record<string, { title: string; budget: number; mileston
           },
           {
             id: "c2_2",
-            description: "PayPal Webhook listener validates CRC32 / HMAC signatures against PayPal certs",
+            description: "Webhook listener verifies every event with PayPal verify-webhook-signature before trusting it",
             verificationType: "ast_analysis",
             targetMetric: "Rejects unverified webhook payloads with HTTP 400",
           },
@@ -149,91 +140,73 @@ const PRESET_CONTRACTS: Record<string, { title: string; budget: number; mileston
   },
 };
 
+const ContractSchema = z.object({
+  title: z.string(),
+  milestones: z
+    .array(
+      z.object({
+        title: z.string(),
+        amount: z.number().describe("USD, whole dollars"),
+        summary: z.string(),
+        criteria: z.array(
+          z.object({
+            description: z.string(),
+            verificationType: z.enum(["ci_test", "ast_analysis", "endpoint_health", "ui_contract"]),
+            targetMetric: z.string().describe("A pass/fail threshold a machine or reviewer can check"),
+          })
+        ),
+      })
+    )
+    .describe("2 to 5 milestones"),
+});
+
+const SYSTEM = `You turn a freelance job description into milestone contracts whose acceptance criteria can be checked from a pull request, CI results or a live URL.
+Each criterion must be concrete and pass/fail: name the test, file, endpoint or threshold. Avoid criteria that need subjective judgment.
+Split the budget across milestones so the amounts add up to it exactly. If no budget is given, propose a realistic one.`;
+
 export async function POST(req: Request) {
   try {
-    const body = await req.json();
-    const { preset, prompt } = body;
+    const { preset, prompt, budget } = await req.json();
 
     if (preset && PRESET_CONTRACTS[preset]) {
-      return NextResponse.json({
-        success: true,
-        contract: PRESET_CONTRACTS[preset],
-      });
+      return NextResponse.json({ success: true, engine: "preset", contract: PRESET_CONTRACTS[preset] });
     }
 
-    // Dynamic fallback generation if custom prompt entered
-    const defaultMilestones: Milestone[] = [
-      {
-        id: "m1",
-        title: "Architecture Blueprint, Schemas & Core Setup",
-        amount: 500,
-        summary: "Foundational setup, linting configs, CI pipeline, and core data contracts.",
-        verifiableCriteria: [
-          {
-            id: "c1_1",
-            description: "Continuous Integration pipeline runs lint and unit test suite cleanly",
-            verificationType: "ci_test",
-            targetMetric: "Exit code 0, 0 linter errors",
-          },
-          {
-            id: "c1_2",
-            description: "Data schema definition covers all required entities specified in prompt",
-            verificationType: "ast_analysis",
-            targetMetric: "100% required fields covered",
-          },
-        ],
-        status: "funded",
-      },
-      {
-        id: "m2",
-        title: "Core Feature Implementation & Integration",
-        amount: 1000,
-        summary: `Implementation of the core functionality: ${prompt ? prompt.slice(0, 100) : "Primary requirements"}...`,
-        verifiableCriteria: [
-          {
-            id: "c2_1",
-            description: "Feature integration passes automated test suite with coverage >= 80%",
-            verificationType: "ci_test",
-            targetMetric: ">= 80% line coverage",
-          },
-          {
-            id: "c2_2",
-            description: "Zero mock/placeholder functions in production code paths",
-            verificationType: "ast_analysis",
-            targetMetric: "Zero TODO/DUMMY handlers detected",
-          },
-        ],
-        status: "funded",
-      },
-      {
-        id: "m3",
-        title: "Production Hardening, Polish & Delivery",
-        amount: 500,
-        summary: "Security validation, responsive testing, and live deployment verification.",
-        verifiableCriteria: [
-          {
-            id: "c3_1",
-            description: "Staging URL responds with HTTP 200 and passes SSL verification",
-            verificationType: "endpoint_health",
-            targetMetric: "HTTP 200 OK, valid SSL cert",
-          },
-        ],
-        status: "pending_funding",
-      },
-    ];
+    const description = String(prompt ?? "").trim().slice(0, 6000);
+    if (!description) {
+      return NextResponse.json({ success: false, error: "Describe the job or pick a preset" }, { status: 400 });
+    }
+    if (!aiConfigured()) {
+      return NextResponse.json(
+        { success: false, error: "Custom contracts need ANTHROPIC_API_KEY. Pick a preset instead." },
+        { status: 503 }
+      );
+    }
 
-    return NextResponse.json({
-      success: true,
-      contract: {
-        title: prompt ? `Custom Contract: ${prompt.slice(0, 45)}...` : "Custom AI Contract",
-        budget: 2000,
-        milestones: defaultMilestones,
-      },
+    const draft = await askClaude({
+      schema: ContractSchema,
+      system: SYSTEM,
+      effort: "low",
+      task: `Budget: ${Number(budget) > 0 ? `$${Number(budget)}` : "not specified"}\n\nJob description:\n${description}`,
     });
-  } catch (_error) {
-    return NextResponse.json(
-      { success: false, error: "Failed to generate contract structure" },
-      { status: 500 }
-    );
+
+    const milestones: Milestone[] = draft.milestones.map((m, i) => ({
+      id: `m${i + 1}`,
+      title: m.title,
+      amount: Math.round(m.amount),
+      summary: m.summary,
+      status: "pending_funding",
+      verifiableCriteria: m.criteria.map((c, j) => ({ id: `c${i + 1}_${j + 1}`, ...c })),
+    }));
+    const contract: Contract = {
+      title: draft.title,
+      budget: milestones.reduce((sum, m) => sum + m.amount, 0),
+      milestones,
+    };
+    return NextResponse.json({ success: true, engine: "claude", contract });
+  } catch (e) {
+    console.error("[contract/parse]", e);
+    const message = e instanceof AiRefusal ? `Model declined: ${e.message}` : "Failed to generate contract";
+    return NextResponse.json({ success: false, error: message }, { status: 502 });
   }
 }

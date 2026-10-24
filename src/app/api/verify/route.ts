@@ -1,122 +1,294 @@
 import { NextResponse } from "next/server";
+import { z } from "zod";
+import { aiConfigured, askClaude, AiRefusal, UNTRUSTED_RULE } from "@/lib/ai";
+import { issueAttestation, sha256, signingConfigured } from "@/lib/attestation";
+import { fetchPullRequest, prescan, probeEndpoint, type ProbeEvidence, type PullRequestEvidence } from "@/lib/evidence";
+import { getAuthorization, paypalConfigured } from "@/lib/paypal";
+import type { Criterion, Engine, Milestone, Submission } from "@/lib/types";
 
-export async function POST(req: Request) {
-  try {
-    const body = await req.json();
-    const { milestone, submission } = body;
+export const maxDuration = 60;
 
-    const {
-      githubRepo = "",
-      prUrl: _prUrl = "",
-      codePayload = "",
-      notes = "",
-      simulatedThreat = "none",
-    } = submission || {};
+const MAX_PAYLOAD_CHARS = 60_000;
 
-    // 1. Air-Gapped Prompt Injection Firewall
-    const combinedContent = `${codePayload} ${notes} ${githubRepo}`.toLowerCase();
-    const injectionPatterns = [
-      "ignore previous instructions",
-      "ignore all previous",
-      "system prompt",
-      "override verification",
-      "mark passed",
-      "return true",
-      "bypass validation",
-      "admin override",
-    ];
+const EvaluatorSchema = z.object({
+  criteria: z.array(
+    z.object({
+      id: z.string(),
+      passed: z.boolean(),
+      confidence: z.enum(["high", "medium", "low"]),
+      evidence: z.string().describe("Specific file, line, check run or probe result that supports the verdict"),
+    })
+  ),
+  injectionAttempt: z.boolean(),
+  injectionEvidence: z.string(),
+  summary: z.string(),
+});
 
-    const detectedInjection =
-      simulatedThreat === "prompt_injection" ||
-      injectionPatterns.some((pattern) => combinedContent.includes(pattern));
+const SkepticSchema = z.object({
+  criteria: z.array(
+    z.object({
+      id: z.string(),
+      upheld: z.boolean().describe("true only if the evidence really shows this criterion is met"),
+      concern: z.string(),
+    })
+  ),
+  fakeOrStubbedWork: z.boolean(),
+  findings: z.array(z.string()),
+});
 
-    if (detectedInjection) {
-      return NextResponse.json({
-        success: false,
-        verified: false,
-        securityAlert: {
-          flagged: true,
-          type: "PROMPT_INJECTION_DETECTED",
-          riskScore: "CRITICAL (99/100)",
-          explanation:
-            "Air-gapped security firewall caught prompt injection attempt inside submission payload. Malicious instruction strings stripped and isolated. Payout execution halted.",
-          evidence: "Matched prohibited override sequence attempting to hijack LLM verification authority.",
-        },
-        criteriaResults: [],
-        summary: "SECURITY HALT: Prompt injection attack intercepted and blocked.",
-      });
-    }
+const EVALUATOR_SYSTEM = `You verify software deliverables against milestone acceptance criteria for a payment-release system.
+A criterion passes only when the evidence provided shows it is met. Missing evidence means it fails; do not assume.
+CI check-run results and endpoint probe results in the evidence block are collected by the platform and are trustworthy.
+${UNTRUSTED_RULE}`;
 
-    // 2. Mock Test / Slop Detector
-    const isMockThreat =
-      simulatedThreat === "mock_tests" ||
-      combinedContent.includes("expect(true).tobe(true)") ||
-      combinedContent.includes("// todo: implement") ||
-      combinedContent.includes("dummy_data_only");
+const SKEPTIC_SYSTEM = `You are the adversarial reviewer in a two-reviewer payment-release check. Your job is to find reasons NOT to release payment:
+tautological or mocked tests, stubbed functions, TODO placeholders, code that does not do what the criterion describes,
+criteria claimed in notes but absent from the diff. Uphold a criterion only when the evidence leaves no reasonable doubt.
+${UNTRUSTED_RULE}`;
 
-    if (isMockThreat) {
-      return NextResponse.json({
-        success: false,
-        verified: false,
-        securityAlert: {
-          flagged: true,
-          type: "FAKE_OR_MOCKED_DELIVERABLE",
-          riskScore: "HIGH (88/100)",
-          explanation:
-            "Adversarial Red Team evaluator flagged artificial test mocks: test suite contains tautological assertions (e.g., true === true) and empty stubbed functions.",
-          evidence: "AST static analysis discovered 4 mocked endpoints with zero functional business logic.",
-        },
-        criteriaResults: (milestone?.verifiableCriteria || []).map((c: any) => ({
-          id: c.id,
-          description: c.description,
-          passed: false,
-          evidence: "Assertion failed: Stubbed code detected; zero real execution trace.",
-        })),
-        summary: "VERIFICATION FAILED: Submission contains placeholder mocks instead of working implementation.",
-      });
-    }
+function describeCriteria(criteria: Criterion[]) {
+  return criteria
+    .map((c) => `- [${c.id}] (${c.verificationType}) ${c.description} | target: ${c.targetMetric}`)
+    .join("\n");
+}
 
-    // 3. Clean / Legitimate Submission Path
-    const criteriaResults = (milestone?.verifiableCriteria || []).map((c: any) => {
-      return {
-        id: c.id,
-        description: c.description,
-        type: c.verificationType,
-        targetMetric: c.targetMetric,
-        passed: true,
-        score: "100%",
-        evidence: `Automated audit verified ${c.verificationType === "ci_test" ? "CI test runner (exit 0, 100% assertions green)" : c.verificationType === "ast_analysis" ? "AST code analysis verified 0 mock tokens, complete error boundaries" : "HTTP 200 OK recorded from live test deployment (latency: 142ms)"}.`,
-      };
-    });
-
-    const evidenceHash = "0x" + Array.from({ length: 32 }, () => Math.floor(Math.random() * 16).toString(16)).join("");
-
-    return NextResponse.json({
-      success: true,
-      verified: true,
-      securityAlert: {
-        flagged: false,
-        type: "CLEAN",
-        riskScore: "0/100",
-        explanation: "Zero injection attempts detected. Payload passed static AST analysis, CI runner verification, and Red Team consensus.",
-      },
-      criteriaResults,
-      dualLlmConsensus: {
-        primaryEvaluatorScore: "98/100",
-        redTeamSkepticScore: "95/100 (No vulnerabilities or fake mocks found)",
-        consensusReached: true,
-      },
-      auditEvidence: {
-        evidenceHash,
-        verifiedAt: new Date().toISOString(),
-        inspectorVersion: "daccord-agentic-eval-v1.4",
-      },
-      summary: "ALL CRITERIA VERIFIED D'ACCORD: Ready for instant automated PayPal payout.",
-    });
-  } catch (_error) {
-    return NextResponse.json(
-      { success: false, error: "Verification process encountered an internal error" },
-      { status: 500 }
+function describePlatformEvidence(pr: PullRequestEvidence | null, probes: ProbeEvidence[]) {
+  const lines: string[] = [];
+  if (pr) {
+    lines.push(`Pull request: ${pr.url} at ${pr.headSha.slice(0, 7)}, ${pr.files.length} files changed.`);
+    lines.push(
+      pr.checks.length
+        ? `CI check runs: ${pr.checks.map((c) => `${c.name}=${c.conclusion ?? c.status}`).join(", ")}`
+        : "CI check runs: none reported for the head commit."
+    );
+    if (pr.diffTruncated) lines.push("Note: the diff was truncated for length.");
+  } else {
+    lines.push("No pull request was provided.");
+  }
+  for (const p of probes) {
+    lines.push(
+      `Endpoint probe ${p.url}: ${p.status ?? "no response"}${p.latencyMs !== null ? ` in ${p.latencyMs}ms` : ""}${p.error ? ` (${p.error})` : ""}`
     );
   }
+  return lines.join("\n");
+}
+
+// Without a model, only criteria that platform evidence can decide are judged.
+function ruleBasedVerdict(c: Criterion, pr: PullRequestEvidence | null, probe?: ProbeEvidence) {
+  if (c.verificationType === "ci_test") {
+    if (!pr || pr.checks.length === 0) return { passed: false, evidence: "No CI check runs found for the submitted PR." };
+    const failing = pr.checks.filter((k) => k.conclusion !== "success" && k.conclusion !== "skipped");
+    return failing.length
+      ? { passed: false, evidence: `Failing or pending checks: ${failing.map((k) => k.name).join(", ")}` }
+      : { passed: true, evidence: `All ${pr.checks.length} CI check runs concluded success.` };
+  }
+  if (c.verificationType === "endpoint_health") {
+    if (!probe) return { passed: false, evidence: "No endpoint URL provided to probe." };
+    return probe.ok
+      ? { passed: true, evidence: `GET ${probe.url} returned ${probe.status} in ${probe.latencyMs}ms.` }
+      : { passed: false, evidence: `GET ${probe.url} failed: ${probe.status ?? probe.error}` };
+  }
+  return { passed: false, evidence: "Needs code review by the AI evaluator, which is not configured." };
+}
+
+export async function POST(req: Request) {
+  const body = await req.json();
+  const milestone: Milestone | undefined = body.milestone;
+  const submission: Submission = body.submission ?? {};
+  const receiver: string = String(body.receiver ?? "").trim();
+  const authorizationId: string = String(body.authorizationId ?? "");
+
+  if (!milestone?.verifiableCriteria?.length) {
+    return NextResponse.json({ success: false, error: "Milestone with criteria is required" }, { status: 400 });
+  }
+  const payloadSize = (submission.codePayload ?? "").length + (submission.notes ?? "").length;
+  if (payloadSize > MAX_PAYLOAD_CHARS) {
+    return NextResponse.json({ success: false, error: "Submission is too large" }, { status: 413 });
+  }
+
+  // 1. Collect platform evidence.
+  let pr: PullRequestEvidence | null = null;
+  let prError: string | null = null;
+  if (submission.prUrl) {
+    try {
+      pr = await fetchPullRequest(submission.prUrl);
+    } catch (e) {
+      prError = e instanceof Error ? e.message : "Could not read pull request";
+    }
+  }
+  const probeTargets = milestone.verifiableCriteria
+    .filter((c) => c.verificationType === "endpoint_health")
+    .map((c) => ({ id: c.id, url: c.probeUrl || submission.stagingUrl }))
+    .filter((t): t is { id: string; url: string } => Boolean(t.url));
+  const probes = await Promise.all(probeTargets.map((t) => probeEndpoint(t.url)));
+  const probeById = new Map(probeTargets.map((t, i) => [t.id, probes[i]]));
+
+  const untrusted = [
+    pr ? `PR title: ${pr.title}\nPR description:\n${pr.body}\n\nDiff:\n${pr.diff}` : "",
+    submission.codePayload ? `Submitted code:\n${submission.codePayload}` : "",
+    submission.notes ? `Contractor notes:\n${submission.notes}` : "",
+  ]
+    .filter(Boolean)
+    .join("\n\n");
+  const evidenceHash = sha256(JSON.stringify({ milestone: milestone.id, untrusted, probes, checks: pr?.checks }));
+  const evidence = {
+    pr: pr && { url: pr.url, title: pr.title, files: pr.files.length, checks: pr.checks, headSha: pr.headSha },
+    prError,
+    probes,
+    hash: evidenceHash,
+  };
+
+  if (!untrusted.trim() && probes.length === 0) {
+    return NextResponse.json({ success: false, error: "Submit a PR URL, code, or a staging URL to verify" }, { status: 400 });
+  }
+
+  // 2. Deterministic screens. These halt before any model is involved.
+  const screen = prescan(untrusted);
+  if (screen.injection.length) {
+    return NextResponse.json({
+      success: true,
+      verified: false,
+      engine: "rules" satisfies Engine,
+      securityAlert: {
+        flagged: true,
+        type: "PROMPT_INJECTION_DETECTED",
+        explanation: "The submission contains text that tries to instruct the verifier. Verification halted; no model was asked to grade it.",
+        evidence: `Matched: ${screen.injection.join(", ")}`,
+      },
+      criteriaResults: [],
+      evidence,
+      summary: "Halted: instruction-injection attempt in the submission.",
+    });
+  }
+  if (screen.tautologies.length) {
+    return NextResponse.json({
+      success: true,
+      verified: false,
+      engine: "rules" satisfies Engine,
+      securityAlert: {
+        flagged: true,
+        type: "TAUTOLOGICAL_TESTS",
+        explanation: "The test code asserts constants against themselves, so passing tests prove nothing. Verification failed.",
+        evidence: `Matched: ${screen.tautologies.join(", ")}`,
+      },
+      criteriaResults: milestone.verifiableCriteria.map((c) => ({
+        id: c.id,
+        description: c.description,
+        passed: false,
+        evidence: "Blocked: tautological assertions in the submission.",
+      })),
+      evidence,
+      summary: "Failed: tests contain tautological assertions.",
+    });
+  }
+
+  // 3. Grade each criterion.
+  let engine: Engine = "rules";
+  let criteriaResults: { id: string; description: string; passed: boolean; evidence: string; concern?: string; confidence?: string }[];
+  let review: { evaluatorSummary: string; skepticFindings: string[]; fakeOrStubbedWork: boolean } | null = null;
+  let securityAlert: { flagged: boolean; type: string; explanation: string; evidence?: string } = {
+    flagged: false,
+    type: "CLEAN",
+    explanation: "No injection patterns or tautological tests found.",
+  };
+
+  if (aiConfigured()) {
+    engine = "claude";
+    const task = `Milestone: ${milestone.title}\n${milestone.summary}\n\nAcceptance criteria:\n${describeCriteria(
+      milestone.verifiableCriteria
+    )}\n\nPlatform-collected evidence (trustworthy):\n${describePlatformEvidence(pr, probes)}\n\nGrade every criterion by id.`;
+
+    try {
+      const [evaluator, skeptic] = await Promise.all([
+        askClaude({ schema: EvaluatorSchema, system: EVALUATOR_SYSTEM, task, untrusted }),
+        askClaude({ schema: SkepticSchema, system: SKEPTIC_SYSTEM, task, untrusted }),
+      ]);
+
+      criteriaResults = milestone.verifiableCriteria.map((c) => {
+        const ev = evaluator.criteria.find((x) => x.id === c.id);
+        const sk = skeptic.criteria.find((x) => x.id === c.id);
+        return {
+          id: c.id,
+          description: c.description,
+          passed: Boolean(ev?.passed && sk?.upheld),
+          confidence: ev?.confidence,
+          evidence: ev?.evidence ?? "Evaluator returned no verdict for this criterion.",
+          concern: sk && !sk.upheld ? sk.concern : undefined,
+        };
+      });
+      review = {
+        evaluatorSummary: evaluator.summary,
+        skepticFindings: skeptic.findings,
+        fakeOrStubbedWork: skeptic.fakeOrStubbedWork,
+      };
+      if (evaluator.injectionAttempt) {
+        securityAlert = {
+          flagged: true,
+          type: "PROMPT_INJECTION_DETECTED",
+          explanation: "The evaluator found text in the submission that tries to steer the verdict. Payout blocked.",
+          evidence: evaluator.injectionEvidence,
+        };
+      } else if (skeptic.fakeOrStubbedWork) {
+        securityAlert = {
+          flagged: true,
+          type: "FAKE_OR_MOCKED_DELIVERABLE",
+          explanation: "The adversarial reviewer found mocked, stubbed or placeholder work.",
+          evidence: skeptic.findings.join(" "),
+        };
+      }
+    } catch (e) {
+      const message = e instanceof AiRefusal ? `Model declined: ${e.message}` : "AI evaluation failed";
+      console.error("[verify]", e);
+      return NextResponse.json({ success: false, error: message, evidence }, { status: 502 });
+    }
+  } else {
+    criteriaResults = milestone.verifiableCriteria.map((c) => ({
+      id: c.id,
+      description: c.description,
+      ...ruleBasedVerdict(c, pr, probeById.get(c.id)),
+    }));
+  }
+
+  const verified = !securityAlert.flagged && criteriaResults.every((c) => c.passed);
+
+  // 4. Sign an attestation that unlocks exactly this payout.
+  let attestation: string | null = null;
+  let attestationError: string | null = null;
+  if (verified) {
+    if (!signingConfigured()) {
+      attestationError = "Payouts are disabled on this deployment (DACCORD_SIGNING_SECRET is not set).";
+    } else if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(receiver)) {
+      attestationError = "Enter the contractor's PayPal email to unlock the payout.";
+    } else if (!authorizationId) {
+      attestationError = "No PayPal authorization on file for this milestone.";
+    } else {
+      let amount = milestone.amount;
+      if (paypalConfigured()) {
+        const auth = await getAuthorization(authorizationId).catch(() => null);
+        if (!auth || !["CREATED", "PENDING"].includes(auth.status)) {
+          attestationError = `PayPal authorization is not capturable (${auth?.status ?? "not found"}).`;
+        } else {
+          amount = Number(auth.amount.value);
+        }
+      }
+      if (!attestationError) {
+        attestation = issueAttestation({ milestoneId: milestone.id, amount, receiver, authorizationId, evidenceHash }).token;
+      }
+    }
+  }
+
+  return NextResponse.json({
+    success: true,
+    verified,
+    engine,
+    securityAlert,
+    criteriaResults,
+    review,
+    evidence,
+    attestation,
+    attestationError,
+    summary: verified
+      ? "All criteria verified. Payout unlocked."
+      : `${criteriaResults.filter((c) => !c.passed).length} of ${criteriaResults.length} criteria not met.`,
+  });
 }
