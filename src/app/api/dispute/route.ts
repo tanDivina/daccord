@@ -10,14 +10,18 @@ export async function POST(req: Request) {
     // Keywords that denote out-of-scope feature creep vs genuine bugs
     const creepTriggers = [
       "also add",
+      "also build",
       "new feature",
       "can we also",
+      "can you also",
       "add mobile app",
+      "mobile app",
+      "admin dashboard",
+      "dashboard for admin",
       "redesign the whole",
       "integrate stripe too",
       "integrate mailchimp",
       "additional pages",
-      "dashboard for admin",
       "change the backend to python",
       "different colors and completely new branding",
     ];
