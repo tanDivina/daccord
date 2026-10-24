@@ -1,0 +1,16 @@
+{
+  "voiceId": "pNInz6obpgDQGcFmaJgB",
+  "modelId": "eleven_v4",
+  "voiceSettings": { "stability": 0.45, "similarity_boost": 0.8, "style": 0.25 },
+  "lines": {
+    "n_hook": "Freelance milestone payments have a silent failure mode: the work gets done... and then everyone waits on the client.",
+    "n_criteria": "D'accord starts before the work does — with pass-fail criteria both sides agree on.",
+    "n_hold": "The client's funds are held with PayPal up front. Authorized — not charged.",
+    "n_submit": "To get paid, the freelancer doesn't send an invoice. They submit evidence: the real pull request, C.I. results, a live URL.",
+    "n_verify": "Two Claude reviewers grade every criterion — an evaluator, and an adversarial skeptic hunting for mocks and stubs. Both have to agree.",
+    "n_release": "A pass signs an attestation that unlocks exactly one payout.",
+    "n_paid": "Capture the hold. Pay the freelancer's PayPal. Settled.",
+    "n_threat": "And hidden instructions in the submitted code? Caught — before a model ever grades them.",
+    "n_outro": "D'accord. Agreed. Verified. Settled. Built for the PayPal A.I. Hackathon."
+  }
+}
