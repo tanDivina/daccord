@@ -522,6 +522,24 @@ export default function HomePage() {
           </div>
         </div>
 
+        <div className="max-w-5xl mx-auto">
+          <div className="border-y-[1.5px] border-[#1A160F]/15 py-7 grid grid-cols-1 sm:grid-cols-3 gap-6 text-center">
+            {[
+              ["71%", "of freelancers have had trouble getting paid for finished work"],
+              ["98 days", "the average longest wait freelancers report to get paid"],
+              ["$5,968", "average income lost to nonpayment in a single year"],
+            ].map(([stat, label]) => (
+              <div key={stat} className="space-y-1.5">
+                <p className="font-display text-4xl font-bold text-[#1A160F]">{stat}</p>
+                <p className="text-[13px] text-[#6B6353] leading-snug max-w-[240px] mx-auto">{label}</p>
+              </div>
+            ))}
+          </div>
+          <p className="text-center text-[11px] text-[#6B6353]/80 mt-2.5">
+            Freelancers Union, &ldquo;The Costs of Nonpayment&rdquo; &mdash; national survey of 5,358 U.S. freelancers (2015).
+          </p>
+        </div>
+
         {activeTab === "demo" && (
           <div className="space-y-8">
             <div className="grid grid-cols-4 gap-2 sm:gap-4">
