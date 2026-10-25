@@ -515,7 +515,7 @@ export default function HomePage() {
               </div>
               <div className="flex items-center justify-center gap-1.5 mt-3">
                 <SealCheckIcon className="w-4 h-4 text-[#44560A]" />
-                <span className="text-[9px] font-mono font-bold tracking-[0.16em] text-[#6B6353]">D&apos;ACCORD &mdash; PAY&Eacute;</span>
+                <span className="text-[9px] font-mono font-bold tracking-[0.16em] text-[#6B6353]">D&apos;ACCORD &mdash; PAID</span>
               </div>
             </div>
             <Maitre pose="serve" className="absolute right-6 bottom-0 w-[215px] h-[296px]" />
@@ -908,7 +908,7 @@ export default function HomePage() {
 
                     <div className="flex items-center justify-center gap-2">
                       <SealCheckIcon className="w-5 h-5 text-[#44560A]" />
-                      <span className="text-[10px] font-mono tracking-[0.2em] text-[#6B6353]">D&apos;ACCORD &mdash; PAY&Eacute;</span>
+                      <span className="text-[10px] font-mono tracking-[0.2em] text-[#6B6353]">D&apos;ACCORD &mdash; PAID</span>
                     </div>
 
                     <div className="flex justify-center pt-2">
