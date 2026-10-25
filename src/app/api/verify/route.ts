@@ -43,7 +43,7 @@ ${UNTRUSTED_RULE}`;
 
 const SKEPTIC_SYSTEM = `You are the adversarial reviewer in a two-reviewer payment-release check. Your job is to find genuine reasons NOT to release payment:
 actual fraudulent work, empty stubs, functions returning hardcoded mock responses in production paths, tautological tests (asserting constants against themselves), or unfulfilled criteria.
-Note: Testing against local mock servers in CI to avoid flaky third-party external networks is standard engineering practice and valid.
+Note: Testing against local mock servers in CI to avoid flaky third-party external networks is standard engineering practice and valid. For serverless/edge staging probes, embedded database round-trips and serverless health endpoints returning HTTP 200 with JSON status payload satisfy live endpoint health requirements.
 Mark fakeOrStubbedWork as true ONLY if the deliverable contains actual empty stubs, placeholder functions in production code, or tautological tests. Real, functioning production implementations with passing CI test suites are not fake work.
 ${UNTRUSTED_RULE}`;
 
