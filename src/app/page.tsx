@@ -4,6 +4,7 @@ import React, { useEffect, useRef, useState } from "react";
 import Link from "next/link";
 import confetti from "canvas-confetti";
 import { GuardIcon, SealCheckIcon, SealCrossIcon, ArrowRightIcon, HoldIcon, PayoutIcon, PlayIcon, RestartIcon, RosetteIcon, ReviewersIcon, StackIcon, HourglassIcon, CodeIcon, ContractIcon, BrokenSealIcon } from "@/components/icons";
+import { Maitre } from "@/components/maitre";
 import type { Contract, Milestone } from "@/lib/types";
 
 declare global {
@@ -118,6 +119,15 @@ function VerificationPanel({ result }: { result: any }) {
         <ModeBadge label={result.engine === "claude" ? "Graded by Claude (2 reviewers)" : "Rule-based checks only"} real={result.engine === "claude"} />
         <span className={`text-xs font-semibold ${result.verified ? "text-emerald-400" : "text-red-300"}`}>{result.summary}</span>
       </div>
+
+      {!result.verified && (
+        <div className="flex items-center gap-3 p-3 rounded-lg bg-white/[0.02] border border-white/5">
+          <Maitre pose="serve" verdict="fail" className="w-10 h-[4.4rem] text-neutral-400 shrink-0" />
+          <p className="text-xs text-neutral-400">
+            The Maître sends this back to the kitchen. The hold stays in place — fix the findings below and resubmit.
+          </p>
+        </div>
+      )}
 
       {alert?.flagged && (
         <div className="p-4 rounded-xl bg-red-950/20 border border-red-500/40 space-y-1">
@@ -271,7 +281,20 @@ export default function HomePage() {
     setIsFunding(true);
     setEscrowError(null);
     try {
-      await authorize(await createOrder());
+      const createData = await postJson("/api/escrow/create", {
+        milestoneId: milestone!.id,
+        amount: milestone!.amount,
+        contractTitle: contract!.title,
+        simulate: true,
+      });
+      if (!createData.success) throw new Error(createData.error);
+      const authData = await postJson("/api/escrow/authorize", {
+        orderId: createData.orderId,
+        amount: milestone!.amount,
+        simulate: true,
+      });
+      if (!authData.success) throw new Error(authData.error);
+      setEscrow(authData);
     } catch (e) {
       setEscrowError(e instanceof Error ? e.message : "Funding failed");
     } finally {
@@ -444,6 +467,12 @@ export default function HomePage() {
 
       <main className="relative z-10 max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-10 space-y-12">
         <div className="text-center space-y-4 max-w-3xl mx-auto">
+          <div className="space-y-1.5">
+            <Maitre pose="greet" className="w-[4.5rem] h-32 mx-auto text-neutral-300" />
+            <p className="text-[11px] font-mono tracking-[0.2em] uppercase text-neutral-500">
+              Le Maître d&apos;accord
+            </p>
+          </div>
           <div className="inline-flex items-center gap-2 px-3 py-1 rounded-full text-xs font-mono tracking-wider bg-[#a8ff35]/10 border border-[#a8ff35]/20 text-[#a8ff35]">
             <RosetteIcon className="w-3.5 h-3.5" />
             PayPal AI Hackathon 2026
@@ -729,6 +758,14 @@ export default function HomePage() {
                           </>
                         )}
                       </button>
+                      {isVerifying && (
+                        <div className="flex items-center justify-center gap-3 pt-1">
+                          <Maitre pose="inspect" className="w-10 h-[4.4rem] text-neutral-400 shrink-0 animate-pulse" />
+                          <p className="text-xs text-neutral-400 text-left max-w-xs">
+                            The Maître is reading the pull request, the CI runs and the staging URL. Two reviewers, one verdict.
+                          </p>
+                        </div>
+                      )}
                     </div>
                   </div>
 
@@ -752,7 +789,13 @@ export default function HomePage() {
                   <VerificationPanel result={verificationResult} />
 
                   <div className="p-5 rounded-xl bg-gradient-to-r from-[#131318] to-[#0c0c0f] border border-[#a8ff35]/30 flex flex-col sm:flex-row items-center justify-between gap-4">
-                    <div>
+                    <div className="flex items-center gap-4">
+                      <Maitre
+                        pose="serve"
+                        verdict={verificationResult.attestation ? "pass" : "fail"}
+                        className="w-12 h-[5.3rem] text-neutral-300 shrink-0 hidden sm:block"
+                      />
+                      <div>
                       <h4 className="text-sm font-semibold text-white">
                         {verificationResult.attestation ? `${money(escrow?.amount ?? milestone.amount)} ready to release` : "Payout locked"}
                       </h4>
@@ -762,6 +805,7 @@ export default function HomePage() {
                           : verificationResult.attestationError}
                       </p>
                       {payout && !payout.success && <p className="text-xs text-red-300 mt-1">{payout.error}</p>}
+                      </div>
                     </div>
                     <button
                       onClick={handleExecutePayout}

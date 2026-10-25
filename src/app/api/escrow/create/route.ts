@@ -4,13 +4,13 @@ import { createAuthorizeOrder, paypalConfigured, PayPalError } from "@/lib/paypa
 // Creates a PayPal order with intent AUTHORIZE for one milestone. The client
 // approves it in the PayPal popup; nothing is captured until verification.
 export async function POST(req: Request) {
-  const { milestoneId, amount, contractTitle } = await req.json();
+  const { milestoneId, amount, contractTitle, simulate } = await req.json();
   const value = Number(amount);
   if (!milestoneId || !Number.isFinite(value) || value <= 0 || value > 10_000) {
     return NextResponse.json({ success: false, error: "Invalid milestone or amount" }, { status: 400 });
   }
 
-  if (!paypalConfigured()) {
+  if (simulate || !paypalConfigured()) {
     return NextResponse.json({ success: true, mode: "simulated", orderId: `SIM-ORDER-${Date.now()}` });
   }
 
