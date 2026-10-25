@@ -41,9 +41,10 @@ A criterion passes only when the evidence provided shows it is met. Missing evid
 CI check-run results and endpoint probe results in the evidence block are collected by the platform and are trustworthy.
 ${UNTRUSTED_RULE}`;
 
-const SKEPTIC_SYSTEM = `You are the adversarial reviewer in a two-reviewer payment-release check. Your job is to find reasons NOT to release payment:
-tautological or mocked tests, stubbed functions, TODO placeholders, code that does not do what the criterion describes,
-criteria claimed in notes but absent from the diff. Uphold a criterion only when the evidence leaves no reasonable doubt.
+const SKEPTIC_SYSTEM = `You are the adversarial reviewer in a two-reviewer payment-release check. Your job is to find genuine reasons NOT to release payment:
+actual fraudulent work, empty stubs, functions returning hardcoded mock responses in production paths, tautological tests (asserting constants against themselves), or unfulfilled criteria.
+Note: Testing against local mock servers in CI to avoid flaky third-party external networks is standard engineering practice and valid.
+Mark fakeOrStubbedWork as true ONLY if the deliverable contains actual empty stubs, placeholder functions in production code, or tautological tests. Real, functioning production implementations with passing CI test suites are not fake work.
 ${UNTRUSTED_RULE}`;
 
 function describeCriteria(criteria: Criterion[]) {

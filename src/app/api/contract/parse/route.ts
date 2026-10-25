@@ -39,9 +39,9 @@ const PRESET_CONTRACTS: Record<string, Contract> = {
         verifiableCriteria: [
           {
             id: "c2_1",
-            description: "Orders v2 Authorize and Capture integration passes all sandbox integration tests",
+            description: "Orders v2 Authorize and Capture integration passes all automated CI integration tests",
             verificationType: "ci_test",
-            targetMetric: "12/12 integration tests passing (coverage >= 85%)",
+            targetMetric: "12/12 integration tests passing in CI (coverage >= 85%)",
           },
           {
             id: "c2_2",
