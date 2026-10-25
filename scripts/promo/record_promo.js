@@ -132,17 +132,43 @@ async function main() {
       await sleep(ms / steps);
     }
   }
-  async function click() {
+  async function click(query = null) {
     await page.evaluate((a, b) => window.cursorClick(a, b), cx, cy);
     await page.mouse.click(cx, cy);
+    if (query) {
+      await page.evaluate((q) => {
+        const el = window.findButton(q);
+        if (el) el.click();
+      }, query);
+    }
     await sleep(260);
   }
   async function clickOn(query, ms = 550) {
+    await page.evaluate((q) => {
+      const el = window.findButton(q);
+      if (el) {
+        const r = el.getBoundingClientRect();
+        if (r.top < 90 || r.bottom > window.innerHeight - 90) {
+          el.scrollIntoView({ behavior: 'smooth', block: 'center' });
+        }
+      }
+    }, query);
+    await sleep(300);
     const c = await page.evaluate((q) => window.centerOf(q), query);
     if (!c) throw new Error(`button not found: ${query}`);
-    await moveTo(c.x, c.y, ms); await sleep(140); await click();
+    await moveTo(c.x, c.y, ms); await sleep(140); await click(query);
   }
   async function typeInto(placeholder, text) {
+    await page.evaluate((p) => {
+      const el = document.querySelector(`input[placeholder*="${p}"], textarea[placeholder*="${p}"]`);
+      if (el) {
+        const r = el.getBoundingClientRect();
+        if (r.top < 90 || r.bottom > window.innerHeight - 90) {
+          el.scrollIntoView({ behavior: 'smooth', block: 'center' });
+        }
+      }
+    }, placeholder);
+    await sleep(300);
     const c = await page.evaluate((p) => window.inputCenter(p), placeholder);
     if (!c) throw new Error(`input not found: ${placeholder}`);
     await moveTo(c.x, c.y, 450); await sleep(100); await click();

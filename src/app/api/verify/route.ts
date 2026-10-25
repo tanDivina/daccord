@@ -82,7 +82,7 @@ function ruleBasedVerdict(c: Criterion, pr: PullRequestEvidence | null, probe?: 
       ? { passed: false, evidence: `Failing or pending checks: ${failing.map((k) => k.name).join(", ")}` }
       : { passed: true, evidence: `All ${pr.checks.length} CI check runs concluded success.` };
   }
-  if (c.verificationType === "endpoint_health") {
+  if (c.verificationType === "endpoint_health" || (c.verificationType as string) === "endpoint_probe") {
     if (!probe) return { passed: false, evidence: "No endpoint URL provided to probe." };
     return probe.ok
       ? { passed: true, evidence: `GET ${probe.url} returned ${probe.status} in ${probe.latencyMs}ms.` }
@@ -117,7 +117,7 @@ export async function POST(req: Request) {
     }
   }
   const probeTargets = milestone.verifiableCriteria
-    .filter((c) => c.verificationType === "endpoint_health")
+    .filter((c) => c.verificationType === "endpoint_health" || (c.verificationType as string) === "endpoint_probe")
     .map((c) => ({ id: c.id, url: c.probeUrl || submission.stagingUrl }))
     .filter((t): t is { id: string; url: string } => Boolean(t.url));
   const probes = await Promise.all(probeTargets.map((t) => probeEndpoint(t.url)));
