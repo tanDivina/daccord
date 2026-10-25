@@ -41,7 +41,7 @@ const PRESET_CONTRACTS: Record<string, Contract> = {
             id: "c2_1",
             description: "Orders v2 Authorize and Capture integration passes all automated CI integration tests",
             verificationType: "ci_test",
-            targetMetric: "12/12 integration tests passing in CI (coverage >= 85%)",
+            targetMetric: "12/12 integration tests passing in CI with status: success",
           },
           {
             id: "c2_2",
