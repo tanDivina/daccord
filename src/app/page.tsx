@@ -644,7 +644,16 @@ export default function HomePage() {
                         paypalReal ? (
                           <div className="space-y-2">
                             <div ref={paypalRef} className="bg-white rounded-lg p-3 min-h-[60px]" />
-                            <p className="text-[11px] text-neutral-500">Log in with a PayPal sandbox personal account to approve.</p>
+                            <div className="flex items-center justify-between text-[11px] pt-1">
+                              <span className="text-neutral-500">Log in with a PayPal sandbox personal account to approve.</span>
+                              <button
+                                onClick={simulateFunding}
+                                disabled={isFunding}
+                                className="text-[#a8ff35] hover:underline font-mono text-[11px] shrink-0"
+                              >
+                                {isFunding ? "Holding..." : "Simulate funding"}
+                              </button>
+                            </div>
                           </div>
                         ) : (
                           <div className="space-y-3">

@@ -185,13 +185,8 @@ async function main() {
   mark('hold'); console.log('Scene 3: hold');
   speak('n_hold');
   await sleep(600);
-  const status = await page.evaluate(() => fetch('/api/status').then((r) => r.json()));
-  if (status.paypal === 'simulated') {
-    await clickOn('Simulate funding', 650);
-  } else {
-    console.log('REAL PAYPAL MODE: approve the checkout in the window, recording continues when the hold appears.');
-  }
-  await waitText('Authorization ID', 120000);
+  await clickOn('Simulate funding', 650);
+  await waitText('Authorization ID', 30000);
   await settle(0.5);
 
   // ── Scene 4: submit evidence ─────────────────────────────────────────────
