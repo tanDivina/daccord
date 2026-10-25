@@ -9,14 +9,14 @@ const config: Config = {
   theme: {
     extend: {
       colors: {
-        background: "#050507",
-        surface: "#0c0c0f",
-        "surface-elevated": "#131318",
-        "surface-border": "rgba(255, 255, 255, 0.07)",
+        background: "#F7F1E3",
+        surface: "#FFFDF4",
+        "surface-elevated": "#F1EAD8",
+        "surface-border": "rgba(26, 22, 15, 0.15)",
         accent: {
-          DEFAULT: "#a8ff35",
-          alt: "#7cd315",
-          glow: "rgba(168, 255, 53, 0.15)",
+          DEFAULT: "#A8D912",
+          alt: "#8FBC0A",
+          glow: "rgba(168, 217, 18, 0.25)",
         },
         paypal: {
           blue: "#0070ba",
@@ -27,11 +27,12 @@ const config: Config = {
       fontFamily: {
         sans: ["var(--font-geist-sans)", "system-ui", "sans-serif"],
         mono: ["var(--font-geist-mono)", "monospace"],
+        display: ["var(--font-fraunces)", "Georgia", "serif"],
       },
       boxShadow: {
-        "glass-sm": "0 4px 20px -2px rgba(0, 0, 0, 0.5), inset 0 1px 0 0 rgba(255, 255, 255, 0.05)",
-        "glass-md": "0 8px 30px -4px rgba(0, 0, 0, 0.6), inset 0 1px 0 0 rgba(255, 255, 255, 0.08)",
-        "accent-glow": "0 0 35px -5px rgba(168, 255, 53, 0.25)",
+        "paper-sm": "3px 3px 0 #1A160F",
+        "paper-md": "6px 6px 0 #1A160F",
+        "accent-glow": "3px 3px 0 #A8D912",
       },
       animation: {
         "pulse-subtle": "pulse 3s cubic-bezier(0.4, 0, 0.6, 1) infinite",

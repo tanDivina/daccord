@@ -3,8 +3,8 @@
 @tailwind utilities;
 
 :root {
-  --background: #050507;
-  --foreground: #ededed;
+  --background: #F7F1E3;
+  --foreground: #1A160F;
 }
 
 body {
@@ -14,26 +14,23 @@ body {
   overflow-x: hidden;
 }
 
-/* Glassmorphism primitives */
+/* Paper panels (bistro-menu look; class names kept so page markup stays stable) */
 .glass-panel {
-  background: rgba(12, 12, 15, 0.75);
-  backdrop-filter: blur(16px);
-  -webkit-backdrop-filter: blur(16px);
-  border: 1px solid rgba(255, 255, 255, 0.07);
+  background: #FFFDF4;
+  border: 1.5px solid #1A160F;
+  box-shadow: 6px 6px 0 #1A160F;
 }
 
 .glass-panel-interactive {
-  background: rgba(12, 12, 15, 0.65);
-  backdrop-filter: blur(16px);
-  -webkit-backdrop-filter: blur(16px);
-  border: 1px solid rgba(255, 255, 255, 0.07);
+  background: #FFFDF4;
+  border: 1.5px solid rgba(26, 22, 15, 0.25);
   transition: all 0.25s cubic-bezier(0.16, 1, 0.3, 1);
 }
 
 .glass-panel-interactive:hover {
-  background: rgba(19, 19, 24, 0.85);
-  border-color: rgba(168, 255, 53, 0.25);
-  box-shadow: 0 10px 30px -10px rgba(0, 0, 0, 0.7), 0 0 20px -5px rgba(168, 255, 53, 0.15);
+  background: #FFFDF4;
+  border-color: #1A160F;
+  box-shadow: 3px 3px 0 #1A160F;
 }
 
 /* Custom scrollbars */
@@ -42,25 +39,25 @@ body {
   height: 6px;
 }
 ::-webkit-scrollbar-track {
-  background: #050507;
+  background: #F7F1E3;
 }
 ::-webkit-scrollbar-thumb {
-  background: rgba(255, 255, 255, 0.15);
+  background: rgba(26, 22, 15, 0.25);
   border-radius: 9999px;
 }
 ::-webkit-scrollbar-thumb:hover {
-  background: rgba(168, 255, 53, 0.4);
+  background: rgba(143, 188, 10, 0.7);
 }
 
 /* Subtle background grid */
 .bg-grid-subtle {
   background-size: 32px 32px;
-  background-image: 
-    linear-gradient(to right, rgba(255, 255, 255, 0.02) 1px, transparent 1px),
-    linear-gradient(to bottom, rgba(255, 255, 255, 0.02) 1px, transparent 1px);
+  background-image:
+    linear-gradient(to right, rgba(26, 22, 15, 0.035) 1px, transparent 1px),
+    linear-gradient(to bottom, rgba(26, 22, 15, 0.035) 1px, transparent 1px);
 }
 
 /* Accent for the custom icon set (src/components/icons.tsx) */
 :root {
-  --icon-accent: #a8ff35;
+  --icon-accent: #A8D912;
 }
