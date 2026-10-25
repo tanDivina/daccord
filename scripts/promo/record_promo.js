@@ -44,12 +44,12 @@ async function main() {
         transition: transform .12s ease; filter: drop-shadow(0 2px 5px rgba(0,0,0,.6)); }
       #promo-cursor.down { transform: scale(0.82); }
       .promo-click { position: fixed; width: 56px; height: 56px; border-radius: 50%; pointer-events: none; z-index: 999998;
-        background: radial-gradient(circle, rgba(168,255,53,0.55) 0%, rgba(168,255,53,0) 70%);
+        background: radial-gradient(circle, rgba(143,188,10,0.6) 0%, rgba(143,188,10,0) 70%);
         transform: translate(-50%,-50%) scale(.25); animation: promoClick .45s cubic-bezier(.1,.8,.3,1) forwards; }
       @keyframes promoClick { to { transform: translate(-50%,-50%) scale(1.6); opacity: 0; } }
       #fps-heartbeat { position: fixed; bottom: 0; right: 0; width: 2px; height: 2px; z-index: 999997;
         animation: hb .033s infinite linear; }
-      @keyframes hb { 0% { background:#050507 } 50% { background:#060608 } 100% { background:#050507 } }
+      @keyframes hb { 0% { background:#F7F1E3 } 50% { background:#F6F0E1 } 100% { background:#F7F1E3 } }
     `;
     document.head.appendChild(style);
     const hb = document.createElement('div'); hb.id = 'fps-heartbeat'; document.body.appendChild(hb);

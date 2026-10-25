@@ -88,7 +88,7 @@ export default function PrivacyPolicy() {
             <p className="text-[#6B6353]">
               Questions about this policy or security reports:
             </p>
-            <div className="p-4 rounded-xl bg-[#0c0c0f] border border-[#1A160F]/15 space-y-1 text-sm font-mono text-[#4A443A]">
+            <div className="p-4 rounded-xl bg-[#F1EAD8] border border-[#1A160F]/15 space-y-1 text-sm font-mono text-[#4A443A]">
               <p>Email: <a href="mailto:support@hero-apps.com" className="text-[#44560A] hover:underline">support@hero-apps.com</a></p>
               <p>Site: hero-apps.com</p>
             </div>

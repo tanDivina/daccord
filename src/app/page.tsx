@@ -3,7 +3,7 @@
 import React, { useEffect, useRef, useState } from "react";
 import Link from "next/link";
 import confetti from "canvas-confetti";
-import { GuardIcon, SealCheckIcon, SealCrossIcon, ArrowRightIcon, HoldIcon, PayoutIcon, PlayIcon, RestartIcon, RosetteIcon, ReviewersIcon, StackIcon, HourglassIcon, CodeIcon, ContractIcon, BrokenSealIcon } from "@/components/icons";
+import { GuardIcon, SealCheckIcon, SealCrossIcon, ArrowRightIcon, HoldIcon, PayoutIcon, PlayIcon, RestartIcon, ReviewersIcon, StackIcon, HourglassIcon, CodeIcon, ContractIcon, BrokenSealIcon } from "@/components/icons";
 import { Maitre } from "@/components/maitre";
 import type { Contract, Milestone } from "@/lib/types";
 
@@ -462,25 +462,64 @@ export default function HomePage() {
       </header>
 
       <main className="relative z-10 max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-10 space-y-12">
-        <div className="text-center space-y-4 max-w-3xl mx-auto">
-          <div className="space-y-1.5">
-            <Maitre pose="greet" className="w-24 h-40 mx-auto" />
-            <p className="text-[11px] font-mono tracking-[0.2em] uppercase text-[#6B6353]">
-              Le Maître d&apos;accord
+        <div className="flex flex-col lg:flex-row items-center gap-10 lg:gap-4 max-w-6xl mx-auto lg:py-4">
+          {/* left: copy */}
+          <div className="flex-1 space-y-6 text-center lg:text-left">
+            <p className="text-[11px] font-mono tracking-[0.18em] uppercase text-[#6B6353]">
+              AI-verified milestone payments &middot; PayPal AI Hackathon 2026
             </p>
+            <h1 className="font-display text-4xl sm:text-5xl lg:text-[64px] lg:leading-[1.06] font-semibold tracking-tight text-[#1A160F]">
+              Agreed. Verified.
+              <br />
+              <span className="italic border-b-[5px] border-[#A8D912]">D&apos;accord.</span>
+            </h1>
+            <p className="text-base sm:text-lg text-[#4A443A] leading-relaxed max-w-xl mx-auto lg:mx-0">
+              Milestone payments for freelancers that don&apos;t wait on a silent client. The client&apos;s funds are held with PayPal up front.
+              When the delivered work meets criteria both sides agreed on, checked against the real pull request, CI and live URL, the money goes to
+              the freelancer&apos;s PayPal.
+            </p>
+            <div className="flex flex-wrap items-center justify-center lg:justify-start gap-3">
+              <button
+                onClick={() => setActiveTab("demo")}
+                className="px-6 py-3 rounded-full bg-[#1A160F] hover:bg-[#332D22] text-[#F7F1E3] font-semibold text-sm shadow-accent-glow transition-all"
+              >
+                Run the protocol demo
+              </button>
+              <button
+                onClick={() => setActiveTab("security_lab")}
+                className="px-6 py-3 rounded-full border-[1.5px] border-[#1A160F] text-[#1A160F] font-semibold text-sm hover:bg-[#1A160F]/5 transition-all"
+              >
+                Visit the threat lab
+              </button>
+            </div>
           </div>
-          <div className="inline-flex items-center gap-2 px-3 py-1 rounded-full text-xs font-mono tracking-wider bg-[#A8D912]/25 border border-[#A8D912] text-[#44560A]">
-            <RosetteIcon className="w-3.5 h-3.5" />
-            PayPal AI Hackathon 2026
+
+          {/* right: l'addition receipt + the Maître */}
+          <div className="relative w-full max-w-md lg:w-[470px] h-[440px] shrink-0 hidden md:block">
+            <SealCheckIcon className="absolute -right-4 top-10 w-72 h-72 opacity-[0.08] text-[#1A160F] [--icon-accent:#1A160F]" aria-hidden="true" />
+            <div className="absolute left-0 top-10 w-[262px] bg-[#FFFDF4] border-[1.5px] border-[#1A160F] shadow-paper-md p-5 -rotate-2">
+              <p className="text-[10px] font-mono font-bold tracking-[0.16em] text-[#6B6353] text-center">L&apos;ADDITION &mdash; MILESTONE N&ordm;2</p>
+              <p className="font-display text-base font-semibold text-center mt-2 mb-3 leading-snug text-[#1A160F]">PayPal Orders v2 &amp; Webhook Engine</p>
+              <div className="space-y-1.5 text-xs text-[#4A443A]">
+                {["12/12 integration tests", "Webhook signatures verified", "Staging health 200 OK"].map((row) => (
+                  <div key={row} className="flex justify-between gap-2">
+                    <span>{row}</span>
+                    <span className="font-bold text-[#1A160F]">&#10003;</span>
+                  </div>
+                ))}
+              </div>
+              <div className="border-t-[1.5px] border-dashed border-[#1A160F]/25 my-3" />
+              <div className="flex justify-between items-baseline">
+                <span className="text-xs font-semibold text-[#1A160F]">Released to freelancer</span>
+                <span className="font-display text-lg font-bold text-[#1A160F]">$1,000.00</span>
+              </div>
+              <div className="flex items-center justify-center gap-1.5 mt-3">
+                <SealCheckIcon className="w-4 h-4 text-[#44560A]" />
+                <span className="text-[9px] font-mono font-bold tracking-[0.16em] text-[#6B6353]">D&apos;ACCORD &mdash; PAY&Eacute;</span>
+              </div>
+            </div>
+            <Maitre pose="serve" className="absolute right-6 bottom-0 w-[215px] h-[296px]" />
           </div>
-          <h1 className="font-display text-4xl sm:text-5xl lg:text-6xl font-semibold tracking-tight text-[#1A160F]">
-            Agreed. Verified. <span className="italic border-b-[5px] border-[#A8D912]">D&apos;accord.</span>
-          </h1>
-          <p className="text-base sm:text-lg text-[#6B6353] leading-relaxed">
-            Milestone payments for freelancers that don&apos;t wait on a silent client. The client&apos;s funds are held with PayPal up front.
-            When the delivered work meets criteria both sides agreed on, checked against the real pull request, CI and live URL, the money goes to
-            the freelancer&apos;s PayPal.
-          </p>
         </div>
 
         {activeTab === "demo" && (
