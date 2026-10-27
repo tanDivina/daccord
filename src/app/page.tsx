@@ -189,6 +189,62 @@ function VerificationPanel({ result }: { result: any }) {
   );
 }
 
+function CountUpStat({
+  value,
+  prefix = "",
+  suffix = "",
+  label,
+  index,
+}: {
+  value: number;
+  prefix?: string;
+  suffix?: string;
+  label: string;
+  index: number;
+}) {
+  const ref = useRef<HTMLParagraphElement>(null);
+  useEffect(() => {
+    const el = ref.current;
+    if (!el || window.matchMedia("(prefers-reduced-motion: reduce)").matches) return;
+    const nf = new Intl.NumberFormat("en-US");
+    const fmt = (v: number) => prefix + nf.format(Math.round(v)) + suffix;
+    const duration = 1500 + index * 80;
+    let raf = 0;
+    const io = new IntersectionObserver(
+      (entries) => {
+        if (!entries.some((e) => e.isIntersecting)) return;
+        io.disconnect();
+        const delay = (performance.now() < 1200 ? 480 : 60) + index * 90;
+        el.textContent = fmt(0);
+        setTimeout(() => {
+          const t0 = performance.now();
+          const tick = (now: number) => {
+            const t = Math.min(1, (now - t0) / duration);
+            el.textContent = fmt(value * (1 - Math.pow(1 - t, 3)));
+            if (t < 1) raf = requestAnimationFrame(tick);
+          };
+          raf = requestAnimationFrame(tick);
+        }, delay);
+      },
+      { threshold: 0.25 }
+    );
+    io.observe(el);
+    return () => {
+      io.disconnect();
+      cancelAnimationFrame(raf);
+    };
+  }, [value, prefix, suffix, index]);
+  const final = prefix + new Intl.NumberFormat("en-US").format(value) + suffix;
+  return (
+    <div className="space-y-1.5">
+      <p ref={ref} className="font-display text-4xl font-bold text-[#1A160F] tabular-nums">
+        {final}
+      </p>
+      <p className="text-[13px] text-[#6B6353] leading-snug max-w-[240px] mx-auto">{label}</p>
+    </div>
+  );
+}
+
 export default function HomePage() {
   const [activeTab, setActiveTab] = useState<"demo" | "security_lab" | "architecture">("demo");
   const [status, setStatus] = useState<Status | null>(null);
@@ -232,6 +288,27 @@ export default function HomePage() {
     loadContract({ preset: "ecommerce_api" });
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
+
+  // Scroll reveals: hide-and-rise only once JS runs (html.js), re-scan when tab/step content mounts.
+  useEffect(() => {
+    document.documentElement.classList.add("js");
+  }, []);
+  useEffect(() => {
+    const els = document.querySelectorAll("[data-reveal]:not(.is-in)");
+    if (!els.length) return;
+    const io = new IntersectionObserver(
+      (entries) =>
+        entries.forEach((e) => {
+          if (e.isIntersecting) {
+            e.target.classList.add("is-in");
+            io.unobserve(e.target);
+          }
+        }),
+      { threshold: 0.15, rootMargin: "0px 0px -10% 0px" }
+    );
+    els.forEach((el) => io.observe(el));
+    return () => io.disconnect();
+  }, [activeTab, currentStep]);
 
   const resetFlow = () => {
     setCurrentStep(1);
@@ -415,7 +492,7 @@ export default function HomePage() {
     <div className="min-h-screen bg-[#F7F1E3] text-[#1A160F] font-sans selection:bg-[#A8D912] selection:text-[#1A160F]">
       <div className="fixed inset-0 bg-grid-subtle pointer-events-none opacity-40 z-0" />
 
-      <header className="sticky top-0 z-50 border-b border-[#1A160F]/15 bg-[#F7F1E3]/85 backdrop-blur-xl">
+      <header className="sticky top-0 z-50 border-b border-[#1A160F]/15 bg-[#F7F1E3]/85 backdrop-blur-xl appear-down">
         <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-3 flex flex-wrap items-center justify-between gap-3">
           <div className="flex items-center gap-3">
             <div className="w-10 h-10 rounded-full bg-[#A8D912] border-[1.5px] border-[#1A160F] flex items-center justify-center text-[#1A160F] [--icon-accent:#1A160F]">
@@ -465,15 +542,20 @@ export default function HomePage() {
         <div className="flex flex-col lg:flex-row items-center gap-10 lg:gap-4 max-w-6xl mx-auto lg:py-4">
           {/* left: copy */}
           <div className="flex-1 space-y-6 text-center lg:text-left">
-            <p className="text-[11px] font-mono tracking-[0.18em] uppercase text-[#6B6353]">
+            <p className="appear text-[11px] font-mono tracking-[0.18em] uppercase text-[#6B6353]" style={{ "--d": "0.05s" } as React.CSSProperties}>
               AI-verified milestone payments &middot; PayPal AI Hackathon 2026
             </p>
             <h1 className="font-display text-4xl sm:text-5xl lg:text-[64px] lg:leading-[1.06] font-semibold tracking-tight text-[#1A160F]">
-              Agreed. Verified.
-              <br />
-              <span className="italic border-b-[5px] border-[#A8D912]">D&apos;accord.</span>
+              <span className="headline-line">
+                <span style={{ "--d": "0.15s" } as React.CSSProperties}>Agreed. Verified.</span>
+              </span>
+              <span className="headline-line">
+                <span style={{ "--d": "0.3s" } as React.CSSProperties}>
+                  <span className="italic border-b-[5px] border-[#A8D912]">D&apos;accord.</span>
+                </span>
+              </span>
             </h1>
-            <p className="text-base sm:text-lg text-[#4A443A] leading-relaxed max-w-xl mx-auto lg:mx-0">
+            <p className="appear-lede text-base sm:text-lg text-[#4A443A] leading-relaxed max-w-xl mx-auto lg:mx-0" style={{ "--d": "0.5s" } as React.CSSProperties}>
               Milestone payments for freelancers that don&apos;t wait on a silent client. The client&apos;s funds are held with PayPal up front.
               When the delivered work meets criteria both sides agreed on, checked against the real pull request, CI and live URL, the money goes to
               the freelancer&apos;s PayPal.
@@ -481,13 +563,15 @@ export default function HomePage() {
             <div className="flex flex-wrap items-center justify-center lg:justify-start gap-3">
               <button
                 onClick={() => setActiveTab("demo")}
-                className="px-6 py-3 rounded-full bg-[#1A160F] hover:bg-[#332D22] text-[#F7F1E3] font-semibold text-sm shadow-accent-glow transition-all"
+                className="appear px-6 py-3 rounded-full bg-[#1A160F] hover:bg-[#332D22] text-[#F7F1E3] font-semibold text-sm shadow-accent-glow btn-press"
+                style={{ "--d": "0.65s" } as React.CSSProperties}
               >
                 Run the protocol demo
               </button>
               <button
                 onClick={() => setActiveTab("security_lab")}
-                className="px-6 py-3 rounded-full border-[1.5px] border-[#1A160F] text-[#1A160F] font-semibold text-sm hover:bg-[#1A160F]/5 transition-all"
+                className="appear btn-press-plain px-6 py-3 rounded-full border-[1.5px] border-[#1A160F] text-[#1A160F] font-semibold text-sm hover:bg-[#1A160F]/5 transition-colors"
+                style={{ "--d": "0.75s" } as React.CSSProperties}
               >
                 Visit the threat lab
               </button>
@@ -496,43 +580,40 @@ export default function HomePage() {
 
           {/* right: l'addition receipt + the Maître */}
           <div className="relative w-full max-w-md lg:w-[470px] h-[440px] shrink-0 hidden md:block">
-            <SealCheckIcon className="absolute -right-4 top-10 w-72 h-72 opacity-[0.08] text-[#1A160F] [--icon-accent:#1A160F]" aria-hidden="true" />
-            <div className="absolute left-0 top-10 w-[262px] bg-[#FFFDF4] border-[1.5px] border-[#1A160F] shadow-paper-md p-5 -rotate-2">
+            <SealCheckIcon className="appear-fade absolute -right-4 top-10 w-72 h-72 opacity-[0.08] text-[#1A160F] [--icon-accent:#1A160F]" style={{ "--d": "1.2s" } as React.CSSProperties} aria-hidden="true" />
+            <div className="appear-receipt absolute left-0 top-10 w-[262px] bg-[#FFFDF4] border-[1.5px] border-[#1A160F] shadow-paper-md p-5 -rotate-2">
               <p className="text-[10px] font-mono font-bold tracking-[0.16em] text-[#6B6353] text-center">L&apos;ADDITION &mdash; MILESTONE N&ordm;2</p>
               <p className="font-display text-base font-semibold text-center mt-2 mb-3 leading-snug text-[#1A160F]">PayPal Orders v2 &amp; Webhook Engine</p>
               <div className="space-y-1.5 text-xs text-[#4A443A]">
-                {["12/12 integration tests", "Webhook signatures verified", "Staging health 200 OK"].map((row) => (
-                  <div key={row} className="flex justify-between gap-2">
+                {["12/12 integration tests", "Webhook signatures verified", "Staging health 200 OK"].map((row, i) => (
+                  <div key={row} className="appear flex justify-between gap-2" style={{ "--d": `${0.95 + i * 0.15}s` } as React.CSSProperties}>
                     <span>{row}</span>
-                    <span className="font-bold text-[#1A160F]">&#10003;</span>
+                    <span className="appear-check font-bold text-[#1A160F]" style={{ "--d": `${1.07 + i * 0.15}s` } as React.CSSProperties}>&#10003;</span>
                   </div>
                 ))}
               </div>
-              <div className="border-t-[1.5px] border-dashed border-[#1A160F]/25 my-3" />
-              <div className="flex justify-between items-baseline">
+              <div className="appear-fade border-t-[1.5px] border-dashed border-[#1A160F]/25 my-3" style={{ "--d": "1.45s" } as React.CSSProperties} />
+              <div className="appear flex justify-between items-baseline" style={{ "--d": "1.45s" } as React.CSSProperties}>
                 <span className="text-xs font-semibold text-[#1A160F]">Released to freelancer</span>
                 <span className="font-display text-lg font-bold text-[#1A160F]">$1,000.00</span>
               </div>
-              <div className="flex items-center justify-center gap-1.5 mt-3">
+              <div className="appear-stamp flex items-center justify-center gap-1.5 mt-3">
                 <SealCheckIcon className="w-4 h-4 text-[#44560A]" />
                 <span className="text-[9px] font-mono font-bold tracking-[0.16em] text-[#6B6353]">D&apos;ACCORD &mdash; PAID</span>
               </div>
             </div>
-            <Maitre pose="serve" className="absolute right-6 bottom-0 w-[215px] h-[296px]" />
+            <Maitre pose="serve" className="appear absolute right-6 bottom-0 w-[215px] h-[296px]" style={{ "--d": "1.1s" } as React.CSSProperties} />
           </div>
         </div>
 
-        <div className="max-w-5xl mx-auto">
+        <div className="max-w-5xl mx-auto" data-reveal>
           <div className="border-y-[1.5px] border-[#1A160F]/15 py-7 grid grid-cols-1 sm:grid-cols-3 gap-6 text-center">
             {[
-              ["71%", "of freelancers have had trouble getting paid for finished work"],
-              ["98 days", "the average longest wait freelancers report to get paid"],
-              ["$5,968", "average income lost to nonpayment in a single year"],
-            ].map(([stat, label]) => (
-              <div key={stat} className="space-y-1.5">
-                <p className="font-display text-4xl font-bold text-[#1A160F]">{stat}</p>
-                <p className="text-[13px] text-[#6B6353] leading-snug max-w-[240px] mx-auto">{label}</p>
-              </div>
+              { value: 71, suffix: "%", label: "of freelancers have had trouble getting paid for finished work" },
+              { value: 98, suffix: " days", label: "the average longest wait freelancers report to get paid" },
+              { value: 5968, prefix: "$", label: "average income lost to nonpayment in a single year" },
+            ].map((stat, i) => (
+              <CountUpStat key={stat.label} index={i} {...stat} />
             ))}
           </div>
           <p className="text-center text-[11px] text-[#6B6353]/80 mt-2.5">
@@ -541,20 +622,22 @@ export default function HomePage() {
         </div>
 
         {activeTab === "demo" && (
-          <div className="space-y-8">
+          <div className="space-y-8 stage-enter">
             <div className="grid grid-cols-4 gap-2 sm:gap-4">
               {[
                 { num: 1, label: "Agree on criteria", icon: ContractIcon },
                 { num: 2, label: "Hold funds in PayPal", icon: HoldIcon },
                 { num: 3, label: "Verify the work", icon: ReviewersIcon },
                 { num: 4, label: "Pay out", icon: PayoutIcon },
-              ].map((step) => {
+              ].map((step, i) => {
                 const Icon = step.icon;
                 const isPassed = currentStep >= step.num;
                 const isCurrent = currentStep === step.num;
                 return (
                   <div
                     key={step.num}
+                    data-reveal
+                    style={{ "--d": `${i * 0.08}s` } as React.CSSProperties}
                     className={`p-3 rounded-xl border transition-all ${
                       isCurrent
                         ? "bg-[#FFFDF4] border-[#1A160F] shadow-accent-glow"
@@ -582,7 +665,7 @@ export default function HomePage() {
             <div className="glass-panel rounded-2xl p-6 sm:p-8 space-y-6">
               {/* STAGE 1 */}
               {currentStep === 1 && (
-                <div className="space-y-6">
+                <div className="space-y-6 stage-enter">
                   <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4 border-b border-[#1A160F]/15 pb-6">
                     <div>
                       <h2 className="font-display text-xl font-bold text-[#1A160F] flex items-center gap-2">
@@ -686,7 +769,7 @@ export default function HomePage() {
                       <div className="flex justify-end pt-4 border-t border-[#1A160F]/15">
                         <button
                           onClick={() => setCurrentStep(2)}
-                          className="px-6 py-3 rounded-xl bg-[#1A160F] hover:bg-[#332D22] text-[#F7F1E3] font-semibold text-sm flex items-center gap-2 transition-all shadow-accent-glow group"
+                          className="px-6 py-3 rounded-xl bg-[#1A160F] hover:bg-[#332D22] text-[#F7F1E3] font-semibold text-sm flex items-center gap-2 shadow-accent-glow btn-press group"
                         >
                           <span>Fund milestone #{activeIdx + 1} with PayPal</span>
                           <ArrowRightIcon className="w-4 h-4 transition-transform duration-300 group-hover:translate-x-1" />
@@ -699,7 +782,7 @@ export default function HomePage() {
 
               {/* STAGE 2 */}
               {currentStep === 2 && milestone && (
-                <div className="space-y-6">
+                <div className="space-y-6 stage-enter">
                   <div className="border-b border-[#1A160F]/15 pb-6 flex flex-wrap items-start justify-between gap-3">
                     <div>
                       <h2 className="font-display text-xl font-bold text-[#1A160F] flex items-center gap-2">
@@ -800,7 +883,7 @@ export default function HomePage() {
                       <button
                         onClick={handleRunVerification}
                         disabled={isVerifying || !escrow}
-                        className="w-full py-3 rounded-xl bg-[#1A160F] hover:bg-[#332D22] text-[#F7F1E3] font-semibold text-sm flex items-center justify-center gap-2 transition-all shadow-accent-glow group disabled:opacity-50"
+                        className="w-full py-3 rounded-xl bg-[#1A160F] hover:bg-[#332D22] text-[#F7F1E3] font-semibold text-sm flex items-center justify-center gap-2 shadow-accent-glow btn-press group disabled:opacity-50"
                       >
                         {isVerifying ? (
                           <span className="animate-pulse">Checking the work...</span>
@@ -828,7 +911,7 @@ export default function HomePage() {
 
               {/* STAGE 3 */}
               {currentStep === 3 && verificationResult && milestone && (
-                <div className="space-y-6">
+                <div className="space-y-6 stage-enter">
                   <div className="border-b border-[#1A160F]/15 pb-6">
                     <h2 className="font-display text-xl font-bold text-[#1A160F] flex items-center gap-2">
                       <ReviewersIcon className="w-5 h-5 text-[#44560A]" />
@@ -863,7 +946,7 @@ export default function HomePage() {
                     <button
                       onClick={handleExecutePayout}
                       disabled={isDisbursing || !verificationResult.attestation}
-                      className="px-6 py-3 rounded-xl bg-[#1A160F] hover:bg-[#332D22] text-[#F7F1E3] font-semibold text-sm flex items-center gap-2 transition-all shadow-accent-glow shrink-0 disabled:opacity-40"
+                      className="px-6 py-3 rounded-xl bg-[#1A160F] hover:bg-[#332D22] text-[#F7F1E3] font-semibold text-sm flex items-center gap-2 shadow-accent-glow btn-press shrink-0 disabled:opacity-40"
                     >
                       {isDisbursing ? (
                         <span className="animate-pulse">Releasing...</span>
@@ -880,7 +963,7 @@ export default function HomePage() {
 
               {/* STAGE 4 */}
               {currentStep === 4 && payout?.success && (
-                <div className="space-y-6">
+                <div className="space-y-6 stage-enter">
                   <div className="border-b border-[#1A160F]/15 pb-6">
                     <div className="mb-2">
                       <ModeBadge label={payout.mode === "simulated" ? "SIMULATED PAYOUT" : `PAYPAL ${payout.mode.toUpperCase()}`} real={payout.mode !== "simulated"} />
@@ -924,7 +1007,7 @@ export default function HomePage() {
                       </span>
                     </div>
 
-                    <div className="flex items-center justify-center gap-2">
+                    <div className="appear-stamp flex items-center justify-center gap-2" style={{ "--d": "0.9s" } as React.CSSProperties}>
                       <SealCheckIcon className="w-5 h-5 text-[#44560A]" />
                       <span className="text-[10px] font-mono tracking-[0.2em] text-[#6B6353]">D&apos;ACCORD &mdash; PAID</span>
                     </div>
@@ -943,7 +1026,7 @@ export default function HomePage() {
         )}
 
         {activeTab === "security_lab" && (
-          <div className="glass-panel rounded-2xl p-6 sm:p-8 space-y-6">
+          <div className="glass-panel rounded-2xl p-6 sm:p-8 space-y-6 stage-enter">
             <div className="border-b border-[#1A160F]/15 pb-6">
               <div className="inline-flex items-center gap-2 px-3 py-1 rounded-full text-xs font-mono bg-[#F6ECCB] text-[#8A6D00] border border-[#8A6D00]/30 mb-2">
                 <GuardIcon className="w-3.5 h-3.5" />
@@ -986,7 +1069,7 @@ export default function HomePage() {
                 <button
                   onClick={runLabSimulation}
                   disabled={labRunning || !contract}
-                  className="px-4 py-2 rounded-lg bg-[#1A160F] hover:bg-[#332D22] text-[#F7F1E3] font-semibold text-xs flex items-center gap-1.5 transition-all shadow-accent-glow disabled:opacity-50"
+                  className="px-4 py-2 rounded-lg bg-[#1A160F] hover:bg-[#332D22] text-[#F7F1E3] font-semibold text-xs flex items-center gap-1.5 shadow-accent-glow btn-press disabled:opacity-50"
                 >
                   <PlayIcon className="w-3.5 h-3.5 fill-[#F7F1E3]" />
                   <span>Run</span>
@@ -1042,7 +1125,7 @@ export default function HomePage() {
         )}
 
         {activeTab === "architecture" && (
-          <div className="glass-panel rounded-2xl p-6 sm:p-8 space-y-8">
+          <div className="glass-panel rounded-2xl p-6 sm:p-8 space-y-8 stage-enter">
             <div className="border-b border-[#1A160F]/15 pb-6">
               <div className="inline-flex items-center gap-2 px-3 py-1 rounded-full text-xs font-mono bg-[#A8D912]/25 text-[#44560A] border border-[#A8D912] mb-2">
                 <StackIcon className="w-3.5 h-3.5" />
@@ -1110,7 +1193,7 @@ export default function HomePage() {
         )}
       </main>
 
-      <footer className="mt-20 border-t border-[#1A160F]/15 bg-[#F7F1E3] py-12 text-xs text-[#6B6353]">
+      <footer data-reveal className="mt-20 border-t border-[#1A160F]/15 bg-[#F7F1E3] py-12 text-xs text-[#6B6353]">
         <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 flex flex-col sm:flex-row items-center justify-between gap-4">
           <div className="flex items-center gap-2">
             <span className="font-bold text-[#1A160F] tracking-tight">D&apos;accord</span>
