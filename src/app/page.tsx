@@ -247,6 +247,15 @@ function CountUpStat({
 
 export default function HomePage() {
   const [activeTab, setActiveTab] = useState<"demo" | "security_lab" | "architecture">("demo");
+  const panelRef = useRef<HTMLDivElement>(null);
+  const openTab = (tab: "demo" | "security_lab" | "architecture") => {
+    setActiveTab(tab);
+    // Wait a frame so the new tab's panel is mounted before measuring where to scroll.
+    requestAnimationFrame(() => {
+      const reduce = window.matchMedia("(prefers-reduced-motion: reduce)").matches;
+      panelRef.current?.scrollIntoView({ behavior: reduce ? "auto" : "smooth", block: "start" });
+    });
+  };
   const [status, setStatus] = useState<Status | null>(null);
 
   const [currentStep, setCurrentStep] = useState<1 | 2 | 3 | 4>(1);
@@ -508,7 +517,7 @@ export default function HomePage() {
             {tabs.map((t) => (
               <button
                 key={t.id}
-                onClick={() => setActiveTab(t.id)}
+                onClick={() => openTab(t.id)}
                 className={`flex-1 md:flex-none whitespace-nowrap px-3.5 py-1.5 rounded-lg text-xs font-medium transition-all ${
                   activeTab === t.id ? "bg-[#1A160F] text-[#F7F1E3] font-semibold shadow-sm" : "text-[#6B6353] hover:text-[#1A160F]"
                 }`}
@@ -562,14 +571,14 @@ export default function HomePage() {
             </p>
             <div className="flex flex-wrap items-center justify-center lg:justify-start gap-3">
               <button
-                onClick={() => setActiveTab("demo")}
+                onClick={() => openTab("demo")}
                 className="appear px-6 py-3 rounded-full bg-[#1A160F] hover:bg-[#332D22] text-[#F7F1E3] font-semibold text-sm shadow-accent-glow btn-press"
                 style={{ "--d": "0.65s" } as React.CSSProperties}
               >
                 Run the protocol demo
               </button>
               <button
-                onClick={() => setActiveTab("security_lab")}
+                onClick={() => openTab("security_lab")}
                 className="appear btn-press-plain px-6 py-3 rounded-full border-[1.5px] border-[#1A160F] text-[#1A160F] font-semibold text-sm hover:bg-[#1A160F]/5 transition-colors"
                 style={{ "--d": "0.75s" } as React.CSSProperties}
               >
@@ -621,6 +630,7 @@ export default function HomePage() {
           </p>
         </div>
 
+        <div ref={panelRef} className="scroll-mt-44 md:scroll-mt-24">
         {activeTab === "demo" && (
           <div className="space-y-8 stage-enter">
             <div className="grid grid-cols-4 gap-2 sm:gap-4">
@@ -1191,6 +1201,7 @@ export default function HomePage() {
             </div>
           </div>
         )}
+        </div>
       </main>
 
       <footer data-reveal className="mt-20 border-t border-[#1A160F]/15 bg-[#F7F1E3] py-12 text-xs text-[#6B6353]">
