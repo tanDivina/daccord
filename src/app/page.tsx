@@ -580,7 +580,7 @@ export default function HomePage() {
 
           {/* right: l'addition receipt + the Maître */}
           <div className="relative w-full max-w-md lg:w-[470px] h-[440px] shrink-0 hidden md:block">
-            <SealCheckIcon className="appear-fade absolute -right-4 top-10 w-72 h-72 opacity-[0.08] text-[#1A160F] [--icon-accent:#1A160F]" style={{ "--d": "1.2s" } as React.CSSProperties} aria-hidden="true" />
+            <SealCheckIcon className="appear-fade absolute -right-4 -top-6 w-72 h-72 opacity-[0.08] text-[#1A160F] [--icon-accent:#1A160F]" style={{ "--d": "1.2s" } as React.CSSProperties} aria-hidden="true" />
             <div className="appear-receipt absolute left-0 top-10 w-[262px] bg-[#FFFDF4] border-[1.5px] border-[#1A160F] shadow-paper-md p-5 -rotate-2">
               <p className="text-[10px] font-mono font-bold tracking-[0.16em] text-[#6B6353] text-center">L&apos;ADDITION &mdash; MILESTONE N&ordm;2</p>
               <p className="font-display text-base font-semibold text-center mt-2 mb-3 leading-snug text-[#1A160F]">PayPal Orders v2 &amp; Webhook Engine</p>

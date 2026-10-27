@@ -71,25 +71,22 @@ body {
   --ease-stamp: cubic-bezier(0.34, 1.56, 0.64, 1);
 }
 
+/* No `to` keyframes: each animation ends at the element's own computed style,
+   so utility classes like opacity-[0.08] or -rotate-2 keep their final say. */
 @keyframes in-fade-rise {
   from { opacity: 0; transform: translateY(20px); }
-  to { opacity: 1; transform: none; }
 }
 @keyframes in-fade-down {
   from { opacity: 0; transform: translateY(-14px); }
-  to { opacity: 1; transform: none; }
 }
 @keyframes in-fade-only {
   from { opacity: 0; }
-  to { opacity: 1; }
 }
 @keyframes in-mask-up {
   from { opacity: 0; transform: translateY(105%); }
-  to { opacity: 1; transform: none; }
 }
 @keyframes in-card-settle {
   from { opacity: 0; transform: translateY(24px) rotate(-4deg); }
-  to { opacity: 1; transform: translateY(0) rotate(-2deg); }
 }
 @keyframes in-check-pop {
   0% { opacity: 0; transform: scale(0.2) rotate(-40deg); }
@@ -138,10 +135,7 @@ body {
   .appear, .appear-down, .appear-fade, .appear-lede, .headline-line > span,
   .appear-receipt, .appear-check, .appear-stamp, .stage-enter {
     animation: none !important;
-    opacity: 1;
-    transform: none;
   }
-  .appear-receipt { transform: rotate(-2deg); }
   .js [data-reveal] { opacity: 1; transform: none; transition: none; }
   .btn-press, .btn-press-plain { transition: none; }
   .btn-press:hover, .btn-press:active { transform: none; box-shadow: 3px 3px 0 #A8D912; }
