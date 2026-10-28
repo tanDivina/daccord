@@ -1,0 +1,53 @@
+<!doctype html>
+<html>
+<head>
+<meta charset="utf-8">
+<!-- YouTube thumbnail, 1280x720. Filled and rendered by make_thumbnail.cjs. -->
+<link href="https://fonts.googleapis.com/css2?family=Fraunces:ital,opsz,wght@0,9..144,700;0,9..144,800;1,9..144,700&family=Geist:wght@500;600;700&family=Geist+Mono:wght@600&display=block" rel="stylesheet">
+<style>
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+  html, body { width: 1280px; height: 720px; overflow: hidden; background: #F7F1E3; }
+  body { position: relative; font-family: Geist, sans-serif; color: #1A160F;
+    background-image: linear-gradient(to right, rgba(26,22,15,.04) 1px, transparent 1px), linear-gradient(to bottom, rgba(26,22,15,.04) 1px, transparent 1px);
+    background-size: 40px 40px; }
+  .maitre { position: absolute; left: 34px; bottom: -6px; width: 390px; height: 640px; }
+  .maitre svg { width: 100%; height: 100%; }
+  .copy { position: absolute; left: 470px; top: 56px; width: 770px; }
+  .kicker { font: 600 21px 'Geist Mono', monospace; letter-spacing: .16em; color: #44560A; }
+  h1 { font: 800 96px/0.96 Fraunces, serif; letter-spacing: -.02em; margin-top: 18px; }
+  h1 em { font-style: italic; font-weight: 700; border-bottom: 9px solid #A8D912; }
+  .receipt { position: absolute; left: 474px; top: 404px; width: 430px; background: #FFFDF4; border: 3px solid #1A160F; box-shadow: 10px 10px 0 #1A160F;
+    padding: 20px 26px 18px; transform: rotate(-2deg); }
+  .receipt .k { font: 600 15px 'Geist Mono', monospace; letter-spacing: .18em; color: #6B6353; text-align: center; }
+  .receipt .amt { font: 800 58px/1 Fraunces, serif; text-align: center; margin: 10px 0 12px; }
+  .receipt .row { display: flex; justify-content: space-between; font: 600 19px Geist, sans-serif; color: #4A443A; margin-top: 4px; }
+  .stamp { position: absolute; left: 640px; top: 566px; transform: rotate(-9deg); border: 5px solid #44560A; color: #44560A; padding: 8px 20px;
+    font: 700 34px 'Geist Mono', monospace; letter-spacing: .12em; background: rgba(168,217,18,.16); }
+  .badges { position: absolute; left: 960px; top: 404px; width: 290px; display: flex; flex-direction: column; gap: 14px; }
+  .badges span { padding: 12px 16px; font: 700 23px/1.2 Geist, sans-serif; border: 3px solid #1A160F; }
+  .b1 { background: #A8D912; box-shadow: 6px 6px 0 #1A160F; }
+  .b2 { background: #FFFDF4; }
+</style>
+</head>
+<body>
+  <div class="maitre" id="maitre"></div>
+  <div class="copy">
+    <div class="kicker">AI-VERIFIED MILESTONE PAYMENTS · PAYPAL</div>
+    <h1>Paid the minute it's <em>verified.</em></h1>
+  </div>
+  <div class="receipt">
+    <div class="k">L'ADDITION · MILESTONE Nº2</div>
+    <div class="amt">$1,000.00</div>
+    <div class="row"><span>Real PR, CI green</span><span>✓</span></div>
+    <div class="row"><span>Two Claude reviewers agree</span><span>✓</span></div>
+  </div>
+  <div class="stamp">D'ACCORD · PAID</div>
+  <div class="badges"><span class="b1" id="b1"></span><span class="b2" id="b2"></span></div>
+<script>
+  const q = new URLSearchParams(location.search);
+  document.getElementById('b1').textContent = q.get('b1');
+  document.getElementById('b2').textContent = q.get('b2');
+  fetch(q.get('svg')).then((r) => r.text()).then((s) => { document.getElementById('maitre').innerHTML = s; window.__ready = true; });
+</script>
+</body>
+</html>
