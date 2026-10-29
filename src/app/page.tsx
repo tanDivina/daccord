@@ -5,9 +5,15 @@ import Link from "next/link";
 import confetti from "canvas-confetti";
 import { GuardIcon, SealCheckIcon, SealCrossIcon, ArrowRightIcon, HoldIcon, PayoutIcon, PlayIcon, RestartIcon, ReviewersIcon, StackIcon, HourglassIcon, CodeIcon, ContractIcon, BrokenSealIcon } from "@/components/icons";
 import { Maitre } from "@/components/maitre";
-import { Ledger } from "@/components/ledger";
+import dynamic from "next/dynamic";
 import { contractRows, disputeRow, holdRow, payoutRow, verifyRows, type LedgerRow } from "@/lib/ledger";
 import type { Contract, Milestone } from "@/lib/types";
+
+// AG Grid is large; load it only when the Ledger tab opens.
+const Ledger = dynamic(() => import("@/components/ledger").then((m) => m.Ledger), {
+  ssr: false,
+  loading: () => <p className="text-xs text-[#6B6353]">Loading ledger…</p>,
+});
 
 declare global {
   interface Window {
