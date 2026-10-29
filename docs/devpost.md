@@ -22,6 +22,8 @@ D'accord runs a four-step settlement protocol for freelance milestones:
 
 The **Threat lab** lets judges try to cheat it live: prompt injection in code comments, a polite "note to the reviewer" that keyword filters miss, tautological tests, and client scope creep (which gets classified and turned into a drafted add-on milestone instead of blocking payment for verified work).
 
+The **Ledger** tab is an AG Grid audit trail of the session: each agreed criterion, PayPal authorization, Claude verdict, blocked attack and payout is one row, with column filters, quick search and CSV export. You can ask it questions in plain language, such as "criteria the skeptic rejected" or "real PayPal events over $1,000". Claude answers with an AG Grid filter model and sort, so the grid itself shows the answer. The rows never leave the browser; only the question and the milestone titles are sent.
+
 PayPal webhooks arrive at /api/paypal/webhook and are verified with PayPal's verify-webhook-signature API before being trusted.
 
 ## How we built it
@@ -29,6 +31,7 @@ PayPal webhooks arrive at /api/paypal/webhook and are verified with PayPal's ver
 - **Next.js 14 + TypeScript** on Vercel, live at https://daccord.hero-apps.com
 - **PayPal sandbox**: Orders v2 (AUTHORIZE → capture), Payouts v1, Webhooks with signature verification
 - **Claude (Anthropic API)**: contract drafting, dual-reviewer milestone verification (evaluator + skeptic), dispute classification
+- **AG Grid Community** (ag-grid-react 36): the audit ledger, themed to the app with the Theming API, with custom status and source cell renderers, text and number column filters, quick filter and CSV export; Claude sets its filter model from plain-language questions
 - **Evidence pipeline**: GitHub PR diff + CI check runs + live staging probe, hashed (SHA-256) into the signed attestation
 - The demo verifies a real open PR on a real microservice repo (github.com/tanDivina/paypal-orders-service, PR #1, CI green) with a live staging health endpoint.
 
@@ -65,4 +68,4 @@ PayPal webhooks arrive at /api/paypal/webhook and are verified with PayPal's ver
 
 ## Suggested tags
 
-paypal, payments, escrow, ai-agents, claude, nextjs, typescript, fintech, freelance
+paypal, payments, escrow, ai-agents, claude, ag-grid, nextjs, typescript, fintech, freelance

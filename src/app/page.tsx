@@ -5,6 +5,8 @@ import Link from "next/link";
 import confetti from "canvas-confetti";
 import { GuardIcon, SealCheckIcon, SealCrossIcon, ArrowRightIcon, HoldIcon, PayoutIcon, PlayIcon, RestartIcon, ReviewersIcon, StackIcon, HourglassIcon, CodeIcon, ContractIcon, BrokenSealIcon } from "@/components/icons";
 import { Maitre } from "@/components/maitre";
+import { Ledger } from "@/components/ledger";
+import { contractRows, disputeRow, holdRow, payoutRow, verifyRows, type LedgerRow } from "@/lib/ledger";
 import type { Contract, Milestone } from "@/lib/types";
 
 declare global {
@@ -87,6 +89,12 @@ export const migrate = async () => {};`,
   },
 };
 type LabKey = keyof typeof LAB_SCENARIOS;
+
+// Appends rows, skipping ids already present (contract rows repeat on reload).
+const mergeRows = (cur: LedgerRow[], add: LedgerRow[]) => {
+  const seen = new Set(cur.map((r) => r.id));
+  return [...cur, ...add.filter((r) => !seen.has(r.id))];
+};
 
 const money = (n: number) => `$${n.toLocaleString("en-US", { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
 
@@ -245,10 +253,13 @@ function CountUpStat({
   );
 }
 
+type Tab = "demo" | "security_lab" | "ledger" | "architecture";
+const LEDGER_KEY = "daccord-ledger-v1";
+
 export default function HomePage() {
-  const [activeTab, setActiveTab] = useState<"demo" | "security_lab" | "architecture">("demo");
+  const [activeTab, setActiveTab] = useState<Tab>("demo");
   const panelRef = useRef<HTMLDivElement>(null);
-  const openTab = (tab: "demo" | "security_lab" | "architecture") => {
+  const openTab = (tab: Tab) => {
     setActiveTab(tab);
     // Wait a frame so the new tab's panel is mounted before measuring where to scroll.
     requestAnimationFrame(() => {
@@ -288,6 +299,29 @@ export default function HomePage() {
   const [labPayload, setLabPayload] = useState(LAB_SCENARIOS.prompt_injection.payload);
   const [labRunning, setLabRunning] = useState(false);
   const [labResult, setLabResult] = useState<any>(null);
+
+  // Audit ledger: rows from real responses, kept in this browser only.
+  const [ledger, setLedger] = useState<LedgerRow[]>([]);
+  useEffect(() => {
+    try {
+      const saved = localStorage.getItem(LEDGER_KEY);
+      if (saved) setLedger((cur) => mergeRows(JSON.parse(saved), cur));
+    } catch {}
+  }, []);
+  const record = (rows: LedgerRow[]) =>
+    setLedger((cur) => {
+      const next = mergeRows(cur, rows);
+      try {
+        localStorage.setItem(LEDGER_KEY, JSON.stringify(next.slice(-500)));
+      } catch {}
+      return next;
+    });
+  const clearLedger = () => {
+    setLedger([]);
+    try {
+      localStorage.removeItem(LEDGER_KEY);
+    } catch {}
+  };
 
   const milestone: Milestone | undefined = contract?.milestones[activeIdx] ?? contract?.milestones[0];
   const paypalReal = status?.paypal === "sandbox" || status?.paypal === "live";
@@ -335,6 +369,7 @@ export default function HomePage() {
       if (data.success) {
         setContract(data.contract);
         setContractEngine(data.engine);
+        record(contractRows(data.contract, data.engine));
         setActiveIdx(data.contract.milestones.length > 1 ? 1 : 0);
         resetFlow();
       } else {
@@ -361,6 +396,7 @@ export default function HomePage() {
     const data = await postJson("/api/escrow/authorize", { orderId, amount: milestone!.amount });
     if (!data.success) throw new Error(data.error);
     setEscrow(data);
+    record([holdRow(milestone!.title, data)]);
   };
 
   const simulateFunding = async () => {
@@ -381,6 +417,7 @@ export default function HomePage() {
       });
       if (!authData.success) throw new Error(authData.error);
       setEscrow(authData);
+      record([holdRow(milestone!.title, authData)]);
     } catch (e) {
       setEscrowError(e instanceof Error ? e.message : "Funding failed");
     } finally {
@@ -444,6 +481,7 @@ export default function HomePage() {
         submission: { prUrl: prUrl.trim() || undefined, stagingUrl: stagingUrl.trim() || undefined, codePayload, notes },
       });
       setVerificationResult(data);
+      record(verifyRows(milestone.title, milestone.amount, data));
       if (data.verified) setCurrentStep(3);
     } catch {
       setVerificationResult({ success: false, error: "Could not reach the verification service." });
@@ -458,6 +496,7 @@ export default function HomePage() {
     try {
       const data = await postJson("/api/payout", { attestation: verificationResult.attestation, contractTitle: contract?.title });
       setPayout(data);
+      record([payoutRow(milestone?.title ?? "", data)]);
       if (data.success) {
         setCurrentStep(4);
         confetti({ particleCount: 120, spread: 70, origin: { y: 0.6 }, colors: ["#A8D912", "#44560A", "#0070ba", "#FFFDF4"] });
@@ -481,6 +520,7 @@ export default function HomePage() {
           ? await postJson("/api/dispute", { milestone: target, revisionRequest: labPayload })
           : await postJson("/api/verify", { milestone: target, submission: { codePayload: labPayload } });
       setLabResult({ kind: scenario.kind, ...data });
+      record(scenario.kind === "dispute" ? [disputeRow(target.title, data)] : verifyRows(target.title, target.amount, data, "Threat lab"));
     } catch {
       setLabResult({ success: false, error: "Request failed" });
     } finally {
@@ -494,6 +534,7 @@ export default function HomePage() {
   const tabs = [
     { id: "demo", label: "Protocol demo" },
     { id: "security_lab", label: "Threat lab" },
+    { id: "ledger", label: "Ledger" },
     { id: "architecture", label: "Architecture" },
   ] as const;
 
@@ -1131,6 +1172,23 @@ export default function HomePage() {
                   <p className="text-xs text-[#B3402F]">{labResult.error}</p>
                 ))}
             </div>
+          </div>
+        )}
+
+        {activeTab === "ledger" && (
+          <div className="glass-panel rounded-2xl p-6 sm:p-8 space-y-6 stage-enter">
+            <div className="border-b border-[#1A160F]/15 pb-6">
+              <div className="inline-flex items-center gap-2 px-3 py-1 rounded-full text-xs font-mono bg-[#A8D912]/25 text-[#44560A] border border-[#A8D912] mb-2">
+                <ContractIcon className="w-3.5 h-3.5" />
+                AUDIT LEDGER
+              </div>
+              <h2 className="font-display text-2xl font-bold text-[#1A160F]">Every hold, verdict and payout</h2>
+              <p className="text-sm text-[#4A443A] mt-1 max-w-2xl">
+                Each agreed criterion, PayPal authorization, Claude verdict and payout from this session, one row each. Ask a question in plain language and
+                Claude sets the filters.
+              </p>
+            </div>
+            <Ledger rows={ledger} onClear={clearLedger} />
           </div>
         )}
 

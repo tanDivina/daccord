@@ -2,6 +2,8 @@
 
 > **Agreed. Verified. Settled.** Built for the PayPal AI Hackathon 2026.
 
+**Live demo:** https://daccord.hero-apps.com (PayPal sandbox + Claude)
+
 Freelance milestone payments that don't wait on a silent client. The client's funds are held with PayPal when the milestone starts. When the freelancer delivers, D'accord checks the work against criteria both sides agreed on up front, using the real pull request, CI results and a live URL. If it passes, the money goes to the freelancer's PayPal.
 
 ## How it works
@@ -16,7 +18,21 @@ Freelance milestone payments that don't wait on a silent client. The client's fu
 4. **Pay out** (`/api/payout`). This step accepts only a valid attestation. It captures the authorization, then sends the amount with PayPal Payouts. The `sender_batch_id` comes from the evidence hash, so PayPal rejects a second payout for the same verification.
 5. **Disputes** (`/api/dispute`). Claude sorts a client's revision request into in-scope defects and out-of-scope expansion, and drafts criteria for an add-on milestone. The price is left to the parties.
 
+6. **Ledger** (AG Grid). Every agreed criterion, PayPal authorization, verdict, attack and payout from the session lands in an AG Grid audit ledger with filters, quick search and CSV export. Ask it a question in plain language ("criteria the skeptic rejected", "real PayPal events over $1,000") and Claude returns an AG Grid filter model and sort (`/api/ledger/query`). Only the question and milestone titles go to the server, never the rows.
+
 PayPal webhooks arrive at `/api/paypal/webhook` and are checked with `verify-webhook-signature` before they are logged.
+
+## Tools used
+
+| Tool | How it's used |
+|---|---|
+| PayPal Orders v2 (`intent: AUTHORIZE`), PayPal JS SDK Buttons | Hold the client's money per milestone, then capture it on a verified pass |
+| PayPal Payouts v1 | Send the captured amount to the freelancer, idempotent per verification |
+| PayPal Webhooks + `verify-webhook-signature` | Receive and check order and payout events |
+| Claude Opus 5.5 (Anthropic API, structured outputs) | Drafts contracts and criteria, runs the evaluator and skeptic reviews, classifies disputes, turns ledger questions into grid filters |
+| AG Grid Community (`ag-grid-react`) | The audit ledger: custom cell renderers, themed with the Theming API, column filters, quick filter, CSV export, filter model set by Claude |
+| GitHub REST API | PR diff and CI check runs as evidence |
+| Next.js 14 on Vercel | App and API routes |
 
 ## Modes
 
