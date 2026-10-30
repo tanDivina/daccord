@@ -64,6 +64,32 @@ const money = (p: ValueFormatterParams<LedgerRow, number>) =>
 const time = (p: ValueFormatterParams<LedgerRow, string>) =>
   p.value ? new Date(p.value).toLocaleTimeString("en-US", { hour: "2-digit", minute: "2-digit", second: "2-digit" }) : "";
 
+const SUGGESTIONS = [
+  "criteria the skeptic rejected",
+  "criteria that failed verification",
+  "attacks that were blocked",
+  "funds still held with PayPal",
+  "payouts sent to the freelancer",
+  "real PayPal events over $1,000",
+  "simulated events only",
+  "verdicts Claude passed, newest first",
+  "largest amounts first",
+  "agreed criteria not yet verified",
+];
+
+/** Suggestions whose words start with what was typed; prefix matches of the whole phrase first. */
+function matchSuggestions(input: string, extra: string[]) {
+  const all = [...SUGGESTIONS, ...extra];
+  const q = input.trim().toLowerCase();
+  if (!q) return all.slice(0, 6);
+  const typed = q.split(/\s+/);
+  const words = (s: string) => s.toLowerCase().split(/[\s,]+/);
+  return all
+    .filter((s) => s.toLowerCase() !== q && typed.every((t) => words(s).some((w) => w.startsWith(t.replace(/[^\w$]/g, "")))))
+    .sort((a, b) => Number(b.toLowerCase().startsWith(q)) - Number(a.toLowerCase().startsWith(q)))
+    .slice(0, 6);
+}
+
 /** Turns the validated query into AG Grid's filter model. */
 function toFilterModel(q: LedgerQuery) {
   const model: Record<string, unknown> = {};
@@ -85,6 +111,17 @@ export function Ledger({ rows, onClear }: { rows: LedgerRow[]; onClear: () => vo
   const [answer, setAnswer] = useState<{ explanation: string; engine: string } | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [quick, setQuick] = useState("");
+  const [menuOpen, setMenuOpen] = useState(false);
+  const [highlight, setHighlight] = useState(-1);
+
+  const milestoneSuggestions = useMemo(
+    () => Array.from(new Set(rows.map((r) => r.milestone).filter(Boolean))).slice(0, 4).map((m) => `everything for ${m}`),
+    [rows]
+  );
+  const matches = matchSuggestions(question, milestoneSuggestions);
+  // Inline completion: the rest of the top suggestion, when it continues what was typed.
+  const ghost =
+    question && matches[0]?.toLowerCase().startsWith(question.toLowerCase()) ? matches[0].slice(question.length) : "";
 
   const columnDefs = useMemo<ColDef<LedgerRow>[]>(
     () => [
@@ -113,8 +150,41 @@ export function Ledger({ rows, onClear }: { rows: LedgerRow[]; onClear: () => vo
     });
   };
 
-  const ask = async (e: React.FormEvent) => {
+  const pick = (text: string) => {
+    setQuestion(text);
+    setMenuOpen(false);
+    setHighlight(-1);
+    runQuery(text);
+  };
+
+  const onKeyDown = (e: React.KeyboardEvent<HTMLInputElement>) => {
+    const atEnd = e.currentTarget.selectionStart === question.length;
+    if ((e.key === "Tab" || (e.key === "ArrowRight" && atEnd)) && ghost) {
+      e.preventDefault();
+      setQuestion(question + ghost);
+    } else if (e.key === "ArrowDown" && matches.length) {
+      e.preventDefault();
+      setMenuOpen(true);
+      setHighlight((h) => (h + 1) % matches.length);
+    } else if (e.key === "ArrowUp" && matches.length) {
+      e.preventDefault();
+      setHighlight((h) => (h <= 0 ? matches.length - 1 : h - 1));
+    } else if (e.key === "Enter" && menuOpen && highlight >= 0 && matches[highlight]) {
+      e.preventDefault();
+      pick(matches[highlight]);
+    } else if (e.key === "Escape") {
+      setMenuOpen(false);
+      setHighlight(-1);
+    }
+  };
+
+  const ask = (e: React.FormEvent) => {
     e.preventDefault();
+    setMenuOpen(false);
+    runQuery(question);
+  };
+
+  const runQuery = async (question: string) => {
     if (!question.trim()) return;
     setAsking(true);
     setError(null);
@@ -166,12 +236,59 @@ export function Ledger({ rows, onClear }: { rows: LedgerRow[]; onClear: () => vo
       </div>
 
       <form onSubmit={ask} className="flex flex-col sm:flex-row gap-2">
-        <input
-          value={question}
-          onChange={(e) => setQuestion(e.target.value)}
-          placeholder='Ask the ledger, e.g. "criteria the skeptic rejected" or "real PayPal events over $1,000"'
-          className="flex-1 bg-[#FFFDF4] text-sm text-[#1A160F] placeholder:text-[#6B6353] border border-[#1A160F]/25 rounded-lg px-3 py-2.5 focus:border-[#1A160F] outline-none"
-        />
+        <div className="relative flex-1">
+          {/* Ghost text sits behind the transparent input and shows the inline completion. */}
+          <div aria-hidden className="absolute inset-0 rounded-lg bg-[#FFFDF4] border border-transparent px-3 py-2.5 text-sm whitespace-pre overflow-hidden pointer-events-none">
+            <span className="invisible">{question}</span>
+            <span className="text-[#6B6353]/60">{ghost}</span>
+          </div>
+          <input
+            value={question}
+            onChange={(e) => {
+              setQuestion(e.target.value);
+              setMenuOpen(true);
+              setHighlight(-1);
+            }}
+            onFocus={() => setMenuOpen(true)}
+            onBlur={() => setMenuOpen(false)}
+            onKeyDown={onKeyDown}
+            role="combobox"
+            aria-expanded={menuOpen && matches.length > 0}
+            aria-controls="ledger-suggestions"
+            aria-autocomplete="both"
+            aria-activedescendant={highlight >= 0 ? `ledger-sugg-${highlight}` : undefined}
+            autoComplete="off"
+            placeholder='Ask the ledger, e.g. "criteria the skeptic rejected" or "real PayPal events over $1,000"'
+            className="relative w-full bg-transparent text-sm text-[#1A160F] placeholder:text-[#6B6353] border border-[#1A160F]/25 rounded-lg px-3 py-2.5 focus:border-[#1A160F] outline-none"
+          />
+          {menuOpen && matches.length > 0 && (
+            <ul
+              id="ledger-suggestions"
+              role="listbox"
+              className="absolute z-20 left-0 right-0 mt-1.5 py-1 rounded-lg bg-[#FFFDF4] border border-[#1A160F] shadow-paper-sm overflow-hidden"
+            >
+              {!question.trim() && <li className="px-3 pt-1.5 pb-1 text-[10px] font-mono uppercase tracking-wide text-[#6B6353]">Try asking</li>}
+              {matches.map((m, i) => (
+                <li
+                  key={m}
+                  id={`ledger-sugg-${i}`}
+                  role="option"
+                  aria-selected={i === highlight}
+                  // mousedown, not click, so the input's blur doesn't close the menu first
+                  onMouseDown={(e) => {
+                    e.preventDefault();
+                    pick(m);
+                  }}
+                  onMouseEnter={() => setHighlight(i)}
+                  className={`px-3 py-2 text-sm cursor-pointer ${i === highlight ? "bg-[#A8D912]/30 text-[#1A160F]" : "text-[#4A443A]"}`}
+                >
+                  {m}
+                </li>
+              ))}
+              {ghost && <li className="px-3 pt-1 pb-1.5 text-[10px] text-[#6B6353]">Tab to complete · Enter to ask</li>}
+            </ul>
+          )}
+        </div>
         <button
           type="submit"
           disabled={asking || !question.trim()}
