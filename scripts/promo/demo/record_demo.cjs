@@ -161,8 +161,8 @@ async function main() {
     const pop = await popP;
     mark('popup_open');
     stopPopup = await screencast(pop, path.join(OUT, 'popup.mp4'), () => { marks.popup_first_frame = +now().toFixed(3); });
-    console.log('\n  >>> PayPal window is open. Log in with your SANDBOX buyer account and approve. Waiting up to 6 min...\n');
-    await page.waitForFunction(() => /Authorization ID/i.test(document.body.innerText), { timeout: 360000 });
+    console.log('\n  >>> PayPal window is open. Log in with your SANDBOX buyer account and approve. Waiting up to 15 min...\n');
+    await page.waitForFunction(() => /Authorization ID/i.test(document.body.innerText), { timeout: 900000 });
     mark('popup_closed');
     await stopPopup().catch(() => {}); stopPopup = null;
     waits.paypal = +(marks.popup_closed - marks.popup_open).toFixed(1);
