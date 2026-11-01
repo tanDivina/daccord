@@ -33,7 +33,8 @@
         "fr": "D'accord."
       },
       "Agreed, verified, paid."
-    ]
+    ],
+    "n_ledger": "Every hold, verdict and payout lands in an AG Grid ledger. Ask it in plain words, and Claude sets the filters."
   },
   "pronunciation": "The product name is always its own part { \"fr\": \"D'accord.\" }, spoken with language_code fr by the same voice and model (Dorien: needs a French accent). Lines are worded so the name stands alone between pauses.",
   "nameSpeed": 1.0

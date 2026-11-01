@@ -252,6 +252,24 @@ async function main() {
   mark('threat2_read');
   await sleep(4200);
   await settle(0.4);
+
+  // ── 6. ledger: the whole run as AG Grid rows, then one plain-language question ──
+  await scrollTo(0, 600);
+  await clickOn('Ledger', 500);
+  await waitText('Every hold, verdict and payout');
+  await page.waitForSelector('.ag-row', { timeout: 30000 });
+  await scrollToText('Every hold, verdict and payout', 120);
+  mark('ledger'); speak('n_ledger');
+  await sleep(2600);
+  await typeInto('Ask the ledger', 'payo');
+  await sleep(900); // the suggestion list and the inline completion show
+  await page.keyboard.press('Tab');
+  await sleep(700);
+  await page.keyboard.press('Enter');
+  await waitText('Clear filters', 60000);
+  mark('ledger_answer');
+  await sleep(3500);
+  await settle(0.6);
   mark('end');
 
   await stopMain();

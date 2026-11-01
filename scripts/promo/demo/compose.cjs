@@ -133,7 +133,7 @@ function demo() {
   const keep = cues.map((c) => [c.t - 0.3, c.end + 0.5]);
   const hold = (t, before, after) => t != null && keep.push([t - before, t + after]);
   hold(M.held, 0.2, 1.8); hold(M.verify_end, 0.4, 2.6); hold(M.paid, 0.2, 3.2);
-  hold(M.threat1_done, 0.3, 2.2); hold(M.threat2_done, 0.3, 3.0); hold(M.threat2_read, 0, 4.4); hold(M.end, 1.5, 0);
+  hold(M.threat1_done, 0.3, 2.2); hold(M.threat2_done, 0.3, 3.0); hold(M.threat2_read, 0, 4.4); hold(M.ledger_answer, 0.3, 3.4); hold(M.end, 1.5, 0);
   // Navigation from the receipt to the threat lab is cut out entirely.
   const cut = M.paid_end != null && M.threat != null ? [M.paid_end + 0.4, M.threat - 0.3] : null;
   keep.sort((x, y) => x[0] - y[0]);
@@ -195,7 +195,7 @@ function demo() {
   const out = next();
   ff([...inputs, ...cs.flatMap((c) => ['-i', c.file]), '-filter_complex', fc, '-map', '[vout]', '-map', '[aout]', ...V_OUT, ...A_OUT, '-t', f3(len), out]);
   segs.push(out);
-  demoMarks = { submit: map(M.submit), verified: map(M.verified ?? M.verify_end), threat: map(M.threat) };
+  demoMarks = { submit: map(M.submit), verified: map(M.verified ?? M.verify_end), threat: map(M.threat), ledger: M.ledger != null ? map(M.ledger) : null };
   console.log(`✓ ${path.basename(out)} demo take ${len.toFixed(1)}s (from ${T.toFixed(1)}s raw, ${pieces.filter((p) => p.k > 1).length} quiet stretches sped up)`);
 }
 
@@ -219,6 +219,7 @@ demo();
 chapters.push({ t: demoStart + demoMarks.submit, title: 'Claude verifies a real pull request' });
 chapters.push({ t: demoStart + demoMarks.verified, title: 'Release and PayPal payout' });
 chapters.push({ t: demoStart + demoMarks.threat, title: 'Threat lab: trying to cheat the verifier' });
+if (demoMarks.ledger != null) chapters.push({ t: demoStart + demoMarks.ledger, title: 'The audit ledger in AG Grid' });
 chapter('Under the hood');
 site('arch', [{ line: 'n_arch', t: LEAD }]);
 chapter("Who it's for and what's next");
