@@ -139,12 +139,12 @@ function demo() {
   keep.sort((x, y) => x[0] - y[0]);
   const merged = [];
   for (const [s, e] of keep) { const S = Math.max(0, s), E = Math.min(T, e); if (merged.length && S <= merged.at(-1)[1]) merged.at(-1)[1] = Math.max(merged.at(-1)[1], E); else merged.push([S, E]); }
-  // Pieces: 1x inside keep zones; quiet gaps sped up to len/3, between 0.6 s and 4 s on screen.
+  // Pieces: 1x inside keep zones; quiet gaps sped up to len/3, between 0.6 s and 2.5 s on screen.
   const pieces = []; let cursor = 0;
   const gap = (a, b) => {
     if (b - a < 0.05) return;
     if (cut && a < cut[1] && b > cut[0]) { gap(a, Math.max(a, cut[0])); gap(Math.min(b, cut[1]), b); return; }
-    const len = b - a, shown = Math.min(len, Math.max(0.6, Math.min(len / 3, 4)));
+    const len = b - a, shown = Math.min(len, Math.max(0.6, Math.min(len / 3, 2.5)));
     pieces.push({ a, b, k: len / shown });
   };
   for (const [s, e] of merged) { gap(cursor, s); if (!(cut && s >= cut[0] && e <= cut[1])) pieces.push({ a: s, b: e, k: 1 }); cursor = e; }
