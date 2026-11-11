@@ -6,6 +6,8 @@ import { grantCommitment, parseGrantInput } from "@/lib/grant";
 // approves it in the PayPal popup; nothing is captured until verification.
 // The client's terms (criteria, payee, staging URL) are hashed into the
 // order's reference_id so the authorize step can only grant those terms.
+// reviewWindow ("48h" default, or "demo2m" for sandbox and simulated holds)
+// is part of those terms; send the same value to /api/escrow/authorize.
 export async function POST(req: Request) {
   const body = await req.json();
   const { amount, contractTitle, simulate } = body;

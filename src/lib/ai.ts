@@ -27,7 +27,7 @@ export async function askClaude<T extends z.ZodType>(opts: {
   client ??= new Anthropic();
 
   const content = opts.untrusted
-    ? `${opts.task}\n\n<untrusted_submission>\n${opts.untrusted}\n</untrusted_submission>`
+    ? `${opts.task}\n\n<untrusted_submission>\n${neutralizeTags(opts.untrusted)}\n</untrusted_submission>`
     : opts.task;
 
   const response = await client.beta.messages.parse({
@@ -48,6 +48,15 @@ export async function askClaude<T extends z.ZodType>(opts: {
   }
   if (!response.parsed_output) throw new Error("Model returned no parseable output");
   return response.parsed_output as z.infer<T>;
+}
+
+/**
+ * Untrusted text must not be able to close (or reopen) the data block it sits
+ * in, so any <untrusted_submission> or </untrusted_submission> tag inside it,
+ * in any case or spacing, is defanged before wrapping.
+ */
+export function neutralizeTags(text: string): string {
+  return text.replace(/<(\s*\/?\s*untrusted_submission)/gi, "&lt;$1");
 }
 
 export const UNTRUSTED_RULE =

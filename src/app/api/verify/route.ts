@@ -12,9 +12,10 @@ import {
   storageMode,
 } from "@/lib/attempts";
 import { clipName, fetchPullRequest, prescan, probeEndpoint, type ProbeEvidence, type PullRequestEvidence } from "@/lib/evidence";
-import { grantMilestone, readGrant } from "@/lib/grant";
+import { grantMilestone, grantReviewWindowSec, readGrant } from "@/lib/grant";
 import { getAuthorization, paypalConfigured } from "@/lib/paypal";
 import { EVALUATOR_SYSTEM, SKEPTIC_SYSTEM } from "@/lib/prompts";
+import { openReview, reviewBlocker, WINDOW_DISABLED_NOTE, windowEnabled } from "@/lib/release";
 import type { Criterion, Engine, Grant, Milestone, Submission } from "@/lib/types";
 
 export const maxDuration = 60;
@@ -267,6 +268,22 @@ export async function POST(req: Request) {
         { success: false, error: "This pull request was closed without being merged. Submit an open or merged PR." },
         { status: 422 }
       );
+    }
+    // A milestone that was paid, escalated, or is waiting for a new commit after
+    // the client's objection cannot open a review window, so do not spend model
+    // calls grading it.
+    if (windowEnabled()) {
+      let blocker: string | null = null;
+      try {
+        blocker = await reviewBlocker(grant, pr.headSha);
+      } catch (e) {
+        console.error("[verify] review store unavailable", e);
+        return NextResponse.json(
+          { success: false, error: "The review datastore is unavailable. Try again shortly." },
+          { status: 503 }
+        );
+      }
+      if (blocker) return NextResponse.json({ success: false, error: blocker }, { status: 409 });
     }
   }
   const probeTargets = milestone.verifiableCriteria
@@ -577,10 +594,16 @@ export async function POST(req: Request) {
     });
   }
 
-  // 5. Sign an attestation that unlocks exactly this payout. Only a grant can
-  // produce one, and every payout field comes from the grant.
+  // 5. Release. With the review window on, a pass opens the client's review
+  // window and no attestation is signed (so /api/payout cannot skip the
+  // window). Without it (production with no datastore) a pass signs a 30-minute
+  // attestation that unlocks exactly this payout, as before. Either way only a
+  // grant can unlock funds, and every payout field comes from the grant.
   let attestation: string | null = null;
   let attestationError: string | null = noAttestation;
+  let windowReview: { windowEnabled: boolean; releaseAt: number | null; reviewWindowSec: number } | null = null;
+  let reviewError: string | null = null;
+  let reviewNote: string | null = null;
   if (verified && grant) {
     if (!signingConfigured()) {
       attestationError = "Payouts are disabled on this deployment (DACCORD_SIGNING_SECRET is not set).";
@@ -593,7 +616,22 @@ export async function POST(req: Request) {
           attestationError = "The PayPal authorization amount no longer matches the funded milestone.";
         }
       }
-      if (!attestationError) {
+      if (!attestationError && windowEnabled()) {
+        try {
+          const opened = await openReview(grant, { evidenceHash, headSha: pr?.headSha ?? null });
+          if (opened.ok) {
+            windowReview = { windowEnabled: true, releaseAt: opened.record.releaseAt, reviewWindowSec: opened.record.reviewWindowSec };
+            reviewNote = opened.note ?? null;
+          } else {
+            reviewError = opened.error;
+          }
+        } catch (e) {
+          console.error("[verify] could not open review window", e);
+          reviewError = "The review datastore is unavailable, so no review window was opened. Verify again shortly.";
+        }
+        if (reviewError) windowReview = { windowEnabled: true, releaseAt: null, reviewWindowSec: grantReviewWindowSec(grant) };
+        attestationError = reviewError;
+      } else if (!attestationError) {
         attestation = issueAttestation({
           milestoneId: grant.milestone.id,
           amount: grant.amount,
@@ -601,9 +639,17 @@ export async function POST(req: Request) {
           authorizationId: grant.authorizationId,
           evidenceHash,
         }).token;
+        windowReview = { windowEnabled: false, releaseAt: null, reviewWindowSec: grantReviewWindowSec(grant) };
+        reviewNote = WINDOW_DISABLED_NOTE;
       }
     }
   }
+  const finalSummary =
+    verified && windowReview?.releaseAt
+      ? "All criteria verified. The client's review window is open."
+      : verified && grant && !attestation
+        ? "All criteria verified, but no payment can be released yet."
+        : summary;
 
   return NextResponse.json({
     ...base,
@@ -611,10 +657,15 @@ export async function POST(req: Request) {
     engine,
     securityAlert,
     criteriaResults,
-    review,
+    // One object: the reviewers' findings (evaluatorSummary, skepticFindings,
+    // fakeOrStubbedWork) when a model graded, plus the review window
+    // (windowEnabled, releaseAt, reviewWindowSec) on a verified grant.
+    review: review || windowReview ? { ...(review ?? {}), ...(windowReview ?? {}) } : null,
     attempts: attempt ? { used: attempt.count, limit: attempt.limit } : null,
     attestation,
     attestationError,
-    summary,
+    reviewError,
+    reviewNote,
+    summary: finalSummary,
   });
 }

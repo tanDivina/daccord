@@ -89,3 +89,28 @@ export function readAttestation(token: unknown): Attestation | null {
     typeof att.evidenceHash === "string";
   return ok ? att : null;
 }
+
+// ---------------------------------------------------------------------------
+// Client key
+//
+// Returned once, to the client's browser, when the funds are held. Approving
+// a release early or objecting during the review window requires it, so the
+// freelancer (who also holds the grant) cannot act as the client.
+// ---------------------------------------------------------------------------
+
+export interface ClientKey {
+  authorizationId: string;
+  issuedAt: number;
+  expiresAt: number;
+}
+
+export function issueClientKey(authorizationId: string, expiresAt: number): string {
+  return signToken<ClientKey>("client", { authorizationId, issuedAt: Date.now(), expiresAt });
+}
+
+/** The client key, or null if it is invalid, expired or for another authorization. */
+export function readClientKey(token: unknown, authorizationId: string): ClientKey | null {
+  const key = verifyToken<ClientKey>("client", token);
+  if (!key || typeof key.authorizationId !== "string") return null;
+  return key.authorizationId === authorizationId ? key : null;
+}

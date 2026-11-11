@@ -1,4 +1,5 @@
 import { createHash, randomUUID } from "crypto";
+import { memory, storeGet, storeMode, storeSet, upstashPipeline, type StoreMode } from "./store";
 
 /**
  * Verification attempt limits and sticky failures.
@@ -10,9 +11,9 @@ import { createHash, randomUUID } from "crypto";
  *   so resubmitting identical evidence returns the earlier failure instead of asking
  *   the model again. Passes are never cached.
  *
- * Storage: Upstash Redis over its REST API when UPSTASH_REDIS_REST_URL and
- * UPSTASH_REDIS_REST_TOKEN are set (plain fetch, no extra dependency); otherwise an
- * in-memory Map. Keys are stored as SHA-256 hashes, never as raw authorization ids.
+ * Storage: store.ts (Upstash Redis over REST when its variables are set, otherwise
+ * an in-memory Map). If Upstash is set but unreachable, these limits fall back to
+ * per-instance memory. Keys are stored as SHA-256 hashes, never as raw authorization ids.
  */
 
 export const ATTEMPT_LIMIT = 5;
@@ -28,38 +29,13 @@ const PREFIX = "daccord";
 export type AttemptCheck = { allowed: boolean; count: number; limit: number; retryAfterSec: number };
 export type StoredVerdict = { verified: boolean; summary: string; at: string };
 
-export function storageMode(): "upstash" | "memory" {
-  return process.env.UPSTASH_REDIS_REST_URL && process.env.UPSTASH_REDIS_REST_TOKEN ? "upstash" : "memory";
+/** Kept for existing callers; same as storeMode() in store.ts. */
+export function storageMode(): StoreMode {
+  return storeMode();
 }
 
 function hashKey(kind: string, key: string): string {
   return `${PREFIX}:${kind}:${createHash("sha256").update(key).digest("hex")}`;
-}
-
-// ---------------------------------------------------------------------------
-// Upstash REST
-// ---------------------------------------------------------------------------
-
-type UpstashResult = { result?: unknown; error?: string };
-
-async function upstashPipeline(commands: (string | number)[][]): Promise<unknown[]> {
-  const base = process.env.UPSTASH_REDIS_REST_URL!.replace(/\/+$/, "");
-  const res = await fetch(`${base}/pipeline`, {
-    method: "POST",
-    headers: {
-      Authorization: `Bearer ${process.env.UPSTASH_REDIS_REST_TOKEN}`,
-      "Content-Type": "application/json",
-    },
-    body: JSON.stringify(commands.map((c) => c.map(String))),
-    cache: "no-store",
-    signal: AbortSignal.timeout(3000),
-  });
-  if (!res.ok) throw new Error(`Upstash HTTP ${res.status}`);
-  const out = (await res.json()) as UpstashResult[];
-  return out.map((r) => {
-    if (r.error) throw new Error(`Upstash: ${r.error}`);
-    return r.result;
-  });
 }
 
 // ---------------------------------------------------------------------------
@@ -71,7 +47,6 @@ async function upstashPipeline(commands: (string | number)[][]): Promise<unknown
 // ---------------------------------------------------------------------------
 
 const memAttempts = new Map<string, number[]>();
-const memVerdicts = new Map<string, { verdict: StoredVerdict; expiresAt: number }>();
 const MEM_MAX_KEYS = 5000;
 
 function memPrune<V>(map: Map<string, V>) {
@@ -144,23 +119,14 @@ export async function checkAttempt(
 /** Returns a remembered failed verdict for this evidence hash, or null. */
 export async function getVerdict(evidenceHash: string): Promise<StoredVerdict | null> {
   const k = hashKey("verdict", evidenceHash);
-  if (storageMode() === "upstash") {
-    try {
-      const [raw] = await upstashPipeline([["GET", k]]);
-      if (typeof raw !== "string") return null;
-      const parsed = JSON.parse(raw) as StoredVerdict;
-      return parsed && parsed.verified === false ? parsed : null;
-    } catch (e) {
-      console.error("[attempts] Upstash unavailable, reading in-memory verdicts", e);
-    }
+  let parsed: StoredVerdict | null;
+  try {
+    parsed = await storeGet<StoredVerdict>(k);
+  } catch (e) {
+    console.error("[attempts] Upstash unavailable, reading in-memory verdicts", e);
+    parsed = memory.get<StoredVerdict>(k);
   }
-  const hit = memVerdicts.get(k);
-  if (!hit) return null;
-  if (hit.expiresAt <= Date.now()) {
-    memVerdicts.delete(k);
-    return null;
-  }
-  return hit.verdict;
+  return parsed && parsed.verified === false ? parsed : null;
 }
 
 /**
@@ -174,14 +140,10 @@ export async function rememberVerdict(
   if (verdict.verified) return;
   const k = hashKey("verdict", evidenceHash);
   const stored: StoredVerdict = { verified: false, summary: verdict.summary.slice(0, 2000), at: new Date().toISOString() };
-  if (storageMode() === "upstash") {
-    try {
-      await upstashPipeline([["SET", k, JSON.stringify(stored), "EX", VERDICT_TTL_SEC]]);
-      return;
-    } catch (e) {
-      console.error("[attempts] Upstash unavailable, storing verdict in memory", e);
-    }
+  try {
+    await storeSet(k, stored, VERDICT_TTL_SEC);
+  } catch (e) {
+    console.error("[attempts] Upstash unavailable, storing verdict in memory", e);
+    memory.set(k, stored, VERDICT_TTL_SEC);
   }
-  memVerdicts.set(k, { verdict: stored, expiresAt: Date.now() + VERDICT_TTL_SEC * 1000 });
-  memPrune(memVerdicts);
 }

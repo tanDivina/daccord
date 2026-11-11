@@ -51,7 +51,7 @@ const PRESET_CONTRACTS: Record<string, Contract> = {
           },
           {
             id: "c2_3",
-            description: "Staging health endpoint applies the migrations, does a database round-trip through the app's db layer and checks PayPal gateway reachability",
+            description: "Staging health endpoint checks PayPal gateway reachability live and reports degraded (503) when the gateway is unreachable",
             verificationType: "endpoint_health",
             targetMetric: "GET /api/health returns HTTP 200 with a JSON report within 2000ms",
           },

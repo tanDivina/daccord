@@ -1,7 +1,9 @@
+import { randomUUID } from "crypto";
 import { NextResponse } from "next/server";
 import { authorizeOrder, getOrder, paypalConfigured, PayPalError } from "@/lib/paypal";
 import { signingConfigured } from "@/lib/attestation";
-import { grantCommitment, GRANT_TTL_MS, issueGrant, parseGrantInput } from "@/lib/grant";
+import { grantCommitment, GRANT_TTL_MS, issueGrantWithClientKey, parseGrantInput } from "@/lib/grant";
+import { storeSetNx } from "@/lib/store";
 
 // Called from the PayPal Buttons onApprove handler: places the hold on the
 // client's funds. PayPal honors an authorization for 3 days and keeps it
@@ -10,6 +12,12 @@ import { grantCommitment, GRANT_TTL_MS, issueGrant, parseGrantInput } from "@/li
 // It also returns a signed milestone grant: the client's criteria, the payee
 // and the staging URL, bound to this authorization and the amount PayPal
 // actually held. The freelancer verifies against the grant and cannot edit it.
+//
+// It also returns a signed client key bound to this authorization. Only the
+// client's browser gets it: approving early or objecting during the review
+// window requires it. The grant carries the review window length
+// (reviewWindowSec): 48 hours, or 2 minutes when the client picked the demo
+// window on a sandbox or simulated hold. Live PayPal holds always get 48 hours.
 export async function POST(req: Request) {
   const body = await req.json().catch(() => null);
   if (!body || typeof body !== "object") {
@@ -35,8 +43,14 @@ export async function POST(req: Request) {
     if (!Number.isFinite(value) || value <= 0 || value > 10_000) {
       return NextResponse.json({ success: false, error: "Invalid amount" }, { status: 400 });
     }
-    const authorizationId = `SIM-AUTH-${Date.now()}`;
-    const expiresAt = Date.now() + GRANT_TTL_MS;
+    const authorizationId = `SIM-AUTH-${Date.now()}-${randomUUID().slice(0, 8)}`;
+    const issued = issueGrantWithClientKey({
+      ...input.value,
+      amount: value,
+      authorizationId,
+      mode: "simulated",
+      expiresAt: Date.now() + GRANT_TTL_MS,
+    });
     return NextResponse.json({
       success: true,
       mode: "simulated",
@@ -44,8 +58,10 @@ export async function POST(req: Request) {
       authorizationId,
       status: "AUTHORIZED",
       amount: value,
-      expirationTime: new Date(expiresAt).toISOString(),
-      grant: issueGrant({ ...input.value, amount: value, authorizationId, mode: "simulated", expiresAt }),
+      expirationTime: new Date(issued.expiresAt).toISOString(),
+      grant: issued.grant,
+      clientKey: issued.clientKey,
+      reviewWindowSec: issued.reviewWindowSec,
     });
   }
 
@@ -74,14 +90,42 @@ export async function POST(req: Request) {
       );
     }
     const paypalExpiry = auth.expirationTime ? Date.parse(auth.expirationTime) : NaN;
-    const grant = issueGrant({
+    const issued = issueGrantWithClientKey({
       ...input.value,
       amount: auth.amount,
       authorizationId: auth.authorizationId,
       mode: "paypal",
       expiresAt: Number.isFinite(paypalExpiry) ? paypalExpiry : undefined,
     });
-    return NextResponse.json({ success: true, mode: "paypal", ...auth, grant });
+    // PayPal answers a repeated authorize call for the same order with its
+    // cached result, and the order id and terms are not secret (the freelancer
+    // holds them in the grant). So the client key is issued once per
+    // authorization: a second call cannot mint another one.
+    let firstIssue: boolean;
+    try {
+      const ttlSec = Math.max(60, (issued.expiresAt - Date.now()) / 1000) + 86_400;
+      firstIssue = await storeSetNx(`daccord:client-key-issued:${auth.authorizationId}`, Date.now(), ttlSec);
+    } catch (e) {
+      console.error("[authorize] datastore unavailable", e);
+      return NextResponse.json(
+        { success: false, error: "The datastore is unavailable, so no client key was issued. Try again in a moment." },
+        { status: 503 }
+      );
+    }
+    if (!firstIssue) {
+      return NextResponse.json(
+        { success: false, error: "A client key was already issued for this hold. Only the browser that placed it can approve or object." },
+        { status: 409 }
+      );
+    }
+    return NextResponse.json({
+      success: true,
+      mode: "paypal",
+      ...auth,
+      grant: issued.grant,
+      clientKey: issued.clientKey,
+      reviewWindowSec: issued.reviewWindowSec,
+    });
   } catch (e) {
     const err = e as PayPalError;
     return NextResponse.json(

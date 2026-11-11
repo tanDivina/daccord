@@ -38,10 +38,124 @@ interface Escrow {
   payerEmail?: string;
   /** Signed milestone grant from /api/escrow/authorize. */
   grant?: string;
+  /** Signed client key from /api/escrow/authorize. Only this browser (the client's) holds it. */
+  clientKey?: string;
 }
 
+// Review window types, typed locally from the API contract so the page does not
+// depend on backend modules.
+type ReviewWindowChoice = "48h" | "demo2m";
+type ReleaseState = "review" | "changes_requested" | "released" | "escalated";
+type ReleasedBy = "client_approval" | "auto" | "freelancer_claim" | "cron";
+type TimeValue = string | number;
+
+interface AddOnMilestone {
+  title: string;
+  criteria?: string[];
+}
+
+interface ReleaseReceipt {
+  captureId?: string | null;
+  captureStatus?: string;
+  payoutBatchId: string;
+  batchStatus?: string;
+  transactionId?: string | null;
+  transactionStatus?: string | null;
+  fee?: string | null;
+  amount: string;
+  receiver: string;
+  senderBatchId: string;
+  elapsedMs?: number;
+  mode?: string;
+}
+
+interface ReleaseObjection {
+  at: TimeValue;
+  text: string;
+  classification: string;
+  inScopeItems?: string[];
+  outOfScopeItems?: string[];
+  addOnMilestone?: AddOnMilestone | null;
+  /** true for IN_SCOPE_DEFECT and MIXED. */
+  upheld?: boolean;
+}
+
+interface ReleaseRecord {
+  state: ReleaseState;
+  grantHash: string;
+  verifiedAt: TimeValue;
+  releaseAt: TimeValue;
+  reviewWindowSec: number;
+  attestationEvidenceHash: string;
+  headSha?: string;
+  objections: ReleaseObjection[];
+  releasedBy?: ReleasedBy;
+  receipt?: ReleaseReceipt;
+  mode?: string;
+  upheldObjections?: number;
+  lastError?: { at: TimeValue; message: string };
+  capture?: { id: string | null; status: string; at: TimeValue };
+}
+
+interface ReleaseStatusResponse {
+  success: boolean;
+  storeMode?: "upstash" | "memory";
+  windowEnabled?: boolean;
+  record: ReleaseRecord | null;
+  now?: TimeValue;
+  error?: string;
+}
+
+interface ArbiterResult {
+  classification: string;
+  reasoning?: string;
+  inScopeItems?: string[];
+  outOfScopeItems?: string[];
+  addOnMilestone?: AddOnMilestone | null;
+}
+
+interface ReviewInfo {
+  windowEnabled: boolean;
+  releaseAt: TimeValue | null;
+  reviewWindowSec: number;
+}
+
+const MAX_UPHELD_OBJECTIONS = 2;
+const UPHELD = new Set(["IN_SCOPE_DEFECT", "MIXED"]);
+
+/** Accepts ms, seconds or an ISO string and returns ms since epoch. */
+const toMs = (v: TimeValue | null | undefined): number | null => {
+  if (v === null || v === undefined) return null;
+  if (typeof v === "number") return v < 1e12 ? v * 1000 : v;
+  const n = Number(v);
+  if (Number.isFinite(n) && v.trim() !== "") return n < 1e12 ? n * 1000 : n;
+  const t = Date.parse(v);
+  return Number.isNaN(t) ? null : t;
+};
+
+const formatWindow = (sec: number) =>
+  sec >= 3600 ? `${Math.round(sec / 3600)} hours` : sec >= 60 ? `${Math.round(sec / 60)} minutes` : `${sec} seconds`;
+
+const formatCountdown = (ms: number) => {
+  const s = Math.max(0, Math.ceil(ms / 1000));
+  const h = Math.floor(s / 3600);
+  const m = Math.floor((s % 3600) / 60);
+  const sec = s % 60;
+  const pad = (n: number) => String(n).padStart(2, "0");
+  return h > 0 ? `${h}h ${pad(m)}m ${pad(sec)}s` : `${pad(m)}m ${pad(sec)}s`;
+};
+
+const RELEASED_BY_LABEL: Record<ReleasedBy, string> = {
+  client_approval: "client approval",
+  auto: "automatic after the review window",
+  cron: "automatic after the review window",
+  freelancer_claim: "freelancer claim",
+};
+
 /** Read-only view of the grant's payload for display. The server checks the signature. */
-function grantTerms(token?: string): { receiver: string; stagingUrl?: string; repo?: string; amount: number } | null {
+function grantTerms(
+  token?: string
+): { receiver: string; stagingUrl?: string; repo?: string; amount: number; reviewWindowSec?: number } | null {
   if (!token) return null;
   try {
     const b64 = token.split(".")[0].replace(/-/g, "+").replace(/_/g, "/");
@@ -50,7 +164,13 @@ function grantTerms(token?: string): { receiver: string; stagingUrl?: string; re
     );
     const g = JSON.parse(json);
     return typeof g.receiver === "string"
-      ? { receiver: g.receiver, stagingUrl: g.stagingUrl, repo: g.repo, amount: g.amount }
+      ? {
+          receiver: g.receiver,
+          stagingUrl: g.stagingUrl,
+          repo: g.repo,
+          amount: g.amount,
+          reviewWindowSec: typeof g.reviewWindowSec === "number" ? g.reviewWindowSec : undefined,
+        }
       : null;
   } catch {
     return null;
@@ -128,6 +248,64 @@ const money = (n: number) => `$${n.toLocaleString("en-US", { minimumFractionDigi
 async function postJson(url: string, body: unknown) {
   const res = await fetch(url, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(body) });
   return res.json();
+}
+
+/** Like postJson, but never throws on a non-JSON error page. */
+async function postRelease<T>(url: string, body: unknown): Promise<T & { success: boolean; error?: string }> {
+  try {
+    const res = await fetch(url, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(body) });
+    const data = await res.json().catch(() => null);
+    if (!data) return { success: false, error: `Request failed (${res.status})` } as T & { success: boolean; error?: string };
+    return data;
+  } catch {
+    return { success: false, error: "Could not reach the release service." } as T & { success: boolean; error?: string };
+  }
+}
+
+function ArbiterCard({ result }: { result: ArbiterResult | ReleaseObjection }) {
+  const upheld = UPHELD.has(result.classification);
+  const label =
+    result.classification === "IN_SCOPE_DEFECT"
+      ? "In scope: the freelancer must fix this"
+      : result.classification === "MIXED"
+      ? "Partly in scope: the in-scope part must be fixed"
+      : result.classification === "OUT_OF_SCOPE_EXPANSION"
+      ? "Out of scope: the clock keeps running"
+      : result.classification;
+  return (
+    <div className={`p-3 rounded-lg border space-y-2 text-xs ${upheld ? "bg-[#F6ECCB] border-[#8A6D00]/30" : "bg-[#F1EAD8] border-[#1A160F]/15"}`}>
+      <div className="flex flex-wrap items-center gap-2">
+        <span className="font-mono font-bold text-[10px] text-[#1A160F]">{result.classification}</span>
+        <span className="text-[#4A443A]">{label}</span>
+      </div>
+      {"text" in result && result.text && <p className="text-[#6B6353] italic">&ldquo;{result.text}&rdquo;</p>}
+      {"reasoning" in result && result.reasoning && <p className="text-[#4A443A]">{result.reasoning}</p>}
+      {result.inScopeItems && result.inScopeItems.length > 0 && (
+        <div className="space-y-0.5">
+          <p className="font-mono text-[10px] uppercase text-[#8A6D00]">In scope, to fix</p>
+          {result.inScopeItems.map((it, i) => (
+            <p key={i} className="text-[#1A160F]">
+              • {it}
+            </p>
+          ))}
+        </div>
+      )}
+      {result.outOfScopeItems && result.outOfScopeItems.length > 0 && (
+        <p className="text-[11px] text-[#6B6353]">Out of scope: {result.outOfScopeItems.join("; ")}</p>
+      )}
+      {result.addOnMilestone && (
+        <div className="p-3 rounded-lg bg-[#FFFDF4] border border-[#1A160F]/20 space-y-1 text-[#1A160F]">
+          <span className="text-[#44560A] font-mono text-[11px]">Suggested add-on milestone (price set by the parties):</span>
+          <p className="font-semibold">{result.addOnMilestone.title}</p>
+          {result.addOnMilestone.criteria?.map((c, i) => (
+            <p key={i} className="text-[#6B6353]">
+              • {c}
+            </p>
+          ))}
+        </div>
+      )}
+    </div>
+  );
 }
 
 function ModeBadge({ label, real }: { label: string; real: boolean }) {
@@ -326,6 +504,19 @@ export default function HomePage() {
   const [isDisbursing, setIsDisbursing] = useState(false);
   const [payout, setPayout] = useState<any>(null);
 
+  // Review window: chosen at funding, signed into the grant by the server.
+  const [reviewWindow, setReviewWindow] = useState<ReviewWindowChoice>("48h");
+  const [releaseRecord, setReleaseRecord] = useState<ReleaseRecord | null>(null);
+  const [storeModeInfo, setStoreModeInfo] = useState<"upstash" | "memory" | null>(null);
+  const [releaseError, setReleaseError] = useState<string | null>(null);
+  const [objectionText, setObjectionText] = useState("");
+  const [lastArbiter, setLastArbiter] = useState<ArbiterResult | null>(null);
+  const [releaseBusy, setReleaseBusy] = useState<null | "approve" | "object" | "claim">(null);
+  const [clockNow, setClockNow] = useState(() => Date.now());
+  // Server clock minus browser clock, so the countdown matches the server's releaseAt check.
+  const skewRef = useRef(0);
+  const celebratedRef = useRef<string | null>(null);
+
   const [labScenario, setLabScenario] = useState<LabKey>("prompt_injection");
   const [labPayload, setLabPayload] = useState(LAB_SCENARIOS.prompt_injection.payload);
   const [labRunning, setLabRunning] = useState(false);
@@ -363,8 +554,24 @@ export default function HomePage() {
     milestone?.verifiableCriteria.some((c) => c.verificationType === "endpoint_health" && !c.probeUrl)
   );
   const fundingReady = receiverValid && (!needsStaging || stagingUrl.trim().length > 0);
-  const termsRef = useRef({ receiver, stagingUrl, repo });
-  termsRef.current = { receiver, stagingUrl, repo };
+  // PayPal live always gets the full 48 hours; the 2-minute window is for sandbox and simulated holds only.
+  const demoWindowAllowed = status?.paypal !== "live";
+  const effectiveWindow: ReviewWindowChoice = demoWindowAllowed ? reviewWindow : "48h";
+  const termsRef = useRef({ receiver, stagingUrl, repo, reviewWindow: effectiveWindow });
+  termsRef.current = { receiver, stagingUrl, repo, reviewWindow: effectiveWindow };
+
+  // Review window state derived from the last verification and the release record.
+  const review: ReviewInfo | null | undefined = verificationResult?.review;
+  const windowEnabled = Boolean(verificationResult?.verified && review?.windowEnabled);
+  const releaseAtMs = toMs(releaseRecord?.releaseAt ?? review?.releaseAt ?? null);
+  const serverNow = clockNow + skewRef.current;
+  const remainingMs = releaseAtMs === null ? null : releaseAtMs - serverNow;
+  const releaseDue = remainingMs !== null && remainingMs <= 0;
+  const releaseState: ReleaseState | null = releaseRecord?.state ?? (windowEnabled ? "review" : null);
+  const upheldCount =
+    releaseRecord?.upheldObjections ?? (releaseRecord?.objections ?? []).filter((o) => UPHELD.has(o.classification)).length;
+  const latestUpheld = [...(releaseRecord?.objections ?? [])].reverse().find((o) => UPHELD.has(o.classification));
+  const windowSec = releaseRecord?.reviewWindowSec ?? review?.reviewWindowSec ?? terms?.reviewWindowSec;
 
   useEffect(() => {
     fetch("/api/status").then((r) => r.json()).then(setStatus).catch(() => null);
@@ -400,6 +607,12 @@ export default function HomePage() {
     setEscrowError(null);
     setVerificationResult(null);
     setPayout(null);
+    setReleaseRecord(null);
+    setReleaseError(null);
+    setObjectionText("");
+    setLastArbiter(null);
+    setStoreModeInfo(null);
+    celebratedRef.current = null;
   };
 
   const loadContract = async (body: Record<string, unknown>) => {
@@ -433,6 +646,7 @@ export default function HomePage() {
     receiver: termsRef.current.receiver.trim(),
     stagingUrl: termsRef.current.stagingUrl.trim() || undefined,
     repo: termsRef.current.repo.trim() || undefined,
+    reviewWindow: termsRef.current.reviewWindow,
   });
 
   const createOrder = async (): Promise<string> => {
@@ -534,7 +748,14 @@ export default function HomePage() {
       });
       setVerificationResult(data);
       record(verifyRows(milestone.title, milestone.amount, data));
-      if (data.verified) setCurrentStep(3);
+      if (data.verified) {
+        // A passing verification opens a fresh window; the status poll loads the new record.
+        setReleaseRecord(null);
+        setReleaseError(null);
+        setLastArbiter(null);
+        setObjectionText("");
+        setCurrentStep(3);
+      }
     } catch {
       setVerificationResult({ success: false, error: "Could not reach the verification service." });
     } finally {
@@ -559,6 +780,109 @@ export default function HomePage() {
       setIsDisbursing(false);
     }
   };
+
+  // Applies a release record from any /api/release/* response. A released record
+  // shows the same L'addition receipt the immediate payout uses.
+  const applyRecord = (rec: ReleaseRecord | null | undefined) => {
+    if (!rec) return;
+    setReleaseRecord(rec);
+    if (rec.state === "released" && rec.receipt) {
+      const mode = rec.receipt.mode ?? rec.mode ?? (escrow?.authorizationId.startsWith("SIM-") ? "simulated" : status?.paypal ?? "simulated");
+      const data = { success: true, mode, receipt: rec.receipt, releasedBy: rec.releasedBy };
+      setPayout(data);
+      if (celebratedRef.current !== rec.receipt.payoutBatchId) {
+        celebratedRef.current = rec.receipt.payoutBatchId;
+        const row = payoutRow(milestone?.title ?? "", data);
+        if (rec.releasedBy) row.detail = `${row.detail}; released by ${RELEASED_BY_LABEL[rec.releasedBy] ?? rec.releasedBy}`;
+        record([row]);
+        setCurrentStep(4);
+        confetti({ particleCount: 120, spread: 70, origin: { y: 0.6 }, colors: ["#A8D912", "#44560A", "#0070ba", "#FFFDF4"] });
+      }
+    }
+  };
+
+  const refreshReleaseStatus = async () => {
+    if (!escrow?.grant) return;
+    const data = await postRelease<ReleaseStatusResponse>("/api/release/status", { grant: escrow.grant });
+    if (!data.success) {
+      setReleaseError(data.error ?? "Could not read the review window.");
+      return;
+    }
+    const srv = toMs(data.now ?? null);
+    if (srv !== null) skewRef.current = srv - Date.now();
+    if (data.storeMode) setStoreModeInfo(data.storeMode);
+    setReleaseError(null);
+    applyRecord(data.record);
+  };
+
+  const handleApprove = async () => {
+    if (!escrow?.grant || !escrow.clientKey) return;
+    setReleaseBusy("approve");
+    setReleaseError(null);
+    const data = await postRelease<{ record?: ReleaseRecord }>("/api/release/approve", { grant: escrow.grant, clientKey: escrow.clientKey });
+    if (!data.success) setReleaseError(data.error ?? "Approval failed.");
+    applyRecord(data.record);
+    setReleaseBusy(null);
+  };
+
+  const handleObject = async () => {
+    if (!escrow?.grant || !escrow.clientKey || !objectionText.trim()) return;
+    setReleaseBusy("object");
+    setReleaseError(null);
+    const data = await postRelease<{ record?: ReleaseRecord; arbiter?: ArbiterResult }>("/api/release/object", {
+      grant: escrow.grant,
+      clientKey: escrow.clientKey,
+      reasons: objectionText.trim(),
+    });
+    if (data.success) {
+      setLastArbiter(data.arbiter ?? null);
+      setObjectionText("");
+      applyRecord(data.record);
+    } else {
+      setReleaseError(data.error ?? "The objection could not be recorded.");
+      applyRecord(data.record);
+    }
+    setReleaseBusy(null);
+  };
+
+  const handleClaim = async () => {
+    if (!escrow?.grant) return;
+    setReleaseBusy("claim");
+    setReleaseError(null);
+    const data = await postRelease<{ record?: ReleaseRecord; releaseAt?: TimeValue }>("/api/release/claim", { grant: escrow.grant });
+    if (!data.success) setReleaseError(data.error ?? "Not due yet.");
+    applyRecord(data.record);
+    setReleaseBusy(null);
+  };
+
+  const reviewPanelOpen = currentStep === 3 && windowEnabled && Boolean(escrow?.grant);
+  const pollingActive = reviewPanelOpen && releaseState !== "released" && releaseState !== "escalated";
+
+  // Poll the release status every 10 s while the review panel is open.
+  useEffect(() => {
+    if (!pollingActive) return;
+    refreshReleaseStatus();
+    const id = setInterval(refreshReleaseStatus, 10_000);
+    return () => clearInterval(id);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [pollingActive, escrow?.grant, verificationResult]);
+
+  // One-second clock for the countdown.
+  useEffect(() => {
+    if (!reviewPanelOpen && releaseState !== "changes_requested") return;
+    const id = setInterval(() => setClockNow(Date.now()), 1000);
+    return () => clearInterval(id);
+  }, [reviewPanelOpen, releaseState]);
+
+  // When the countdown reaches zero, ask the server right away so the auto-release shows.
+  const dueFiredRef = useRef<number | null>(null);
+  useEffect(() => {
+    if (!pollingActive || !releaseDue || releaseState !== "review" || releaseAtMs === null) return;
+    if (dueFiredRef.current === releaseAtMs) return;
+    dueFiredRef.current = releaseAtMs;
+    refreshReleaseStatus();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [pollingActive, releaseDue, releaseState, releaseAtMs]);
 
   const runLabSimulation = async () => {
     const scenario = LAB_SCENARIOS[labScenario];
@@ -901,6 +1225,22 @@ export default function HomePage() {
                     </button>
                   </div>
 
+                  {releaseRecord?.state === "changes_requested" && (
+                    <div className="p-4 rounded-xl bg-[#F6ECCB] border border-[#8A6D00]/30 space-y-3">
+                      <div className="flex items-start gap-3">
+                        <Maitre pose="serve" verdict="fail" className="w-10 h-[4.4rem] text-[#6B6353] shrink-0" />
+                        <div className="space-y-1">
+                          <p className="text-sm font-semibold text-[#1A160F]">Changes requested. The release is paused.</p>
+                          <p className="text-xs text-[#4A443A]">
+                            The scope arbiter upheld the client&apos;s objection against the agreed criteria. Push a new commit and submit it below. If it
+                            passes, a fresh review window opens. The hold stays in place.
+                          </p>
+                        </div>
+                      </div>
+                      {latestUpheld && <ArbiterCard result={latestUpheld} />}
+                    </div>
+                  )}
+
                   <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
                     <div className="p-5 rounded-xl bg-[#F1EAD8] border border-[#1A160F]/20 space-y-4">
                       <div className="flex items-center justify-between">
@@ -936,6 +1276,40 @@ export default function HomePage() {
                             placeholder="GitHub repo the PR must target (owner/name, recommended)"
                             className={inputClass}
                           />
+                          <fieldset className="space-y-1.5 pt-1">
+                            <legend className="text-[11px] font-mono uppercase text-[#6B6353] mb-1">Review window</legend>
+                            <p className="text-[11px] text-[#6B6353]">
+                              After the work passes, the client can approve or object. If the client stays silent, the funds release when the window ends.
+                            </p>
+                            <div className="flex flex-wrap gap-2">
+                              {(
+                                [
+                                  { id: "48h", label: "48 hours", note: "Default" },
+                                  ...(demoWindowAllowed ? [{ id: "demo2m", label: "Demo: 2 minutes", note: "Demo only, sandbox and simulated holds" }] : []),
+                                ] as { id: ReviewWindowChoice; label: string; note: string }[]
+                              ).map((opt) => (
+                                <label
+                                  key={opt.id}
+                                  className={`flex-1 min-w-[140px] cursor-pointer rounded-lg border px-3 py-2 text-xs transition-all ${
+                                    effectiveWindow === opt.id ? "bg-[#FFFDF4] border-[#1A160F]" : "bg-[#FFFDF4]/50 border-[#1A160F]/15 hover:border-[#1A160F]/40"
+                                  } ${orderStarted ? "pointer-events-none opacity-70" : ""}`}
+                                >
+                                  <input
+                                    type="radio"
+                                    name="review-window"
+                                    value={opt.id}
+                                    checked={effectiveWindow === opt.id}
+                                    onChange={() => setReviewWindow(opt.id)}
+                                    disabled={orderStarted}
+                                    className="sr-only"
+                                  />
+                                  <span className="font-semibold text-[#1A160F] block">{opt.label}</span>
+                                  <span className={`text-[10px] font-mono ${opt.id === "demo2m" ? "text-[#8A6D00]" : "text-[#6B6353]"}`}>{opt.note}</span>
+                                </label>
+                              ))}
+                            </div>
+                            {!demoWindowAllowed && <p className="text-[11px] text-[#6B6353]">Live PayPal always uses the full 48 hours.</p>}
+                          </fieldset>
                           <p className="text-[11px] text-[#6B6353]">
                             Set before the hold. These are signed into the milestone, so the freelancer cannot change them.
                           </p>
@@ -986,6 +1360,9 @@ export default function HomePage() {
                             ["Payee", terms?.receiver ?? "n/a"],
                             ["Staging URL", terms?.stagingUrl ?? "none"],
                             ["Repository", terms?.repo ?? "any"],
+                            ...(terms?.reviewWindowSec
+                              ? [["Review window", `${formatWindow(terms.reviewWindowSec)}${terms.reviewWindowSec < 3600 ? " (demo)" : ""}`]]
+                              : []),
                           ].map(([k, v]) => (
                             <div key={k} className="flex justify-between gap-3 py-1 border-b border-[#1A160F]/10">
                               <span className="text-[#6B6353]">{k}</span>
@@ -1070,6 +1447,209 @@ export default function HomePage() {
 
                   <VerificationPanel result={verificationResult} />
 
+                  {windowEnabled ? (
+                    <div className="space-y-4">
+                      {/* Verdict summary + countdown */}
+                      <div className="p-5 rounded-xl bg-[#FFFDF4] border-[1.5px] border-[#1A160F] shadow-paper-sm flex flex-col sm:flex-row items-center justify-between gap-4">
+                        <div className="flex items-center gap-4">
+                          <Maitre
+                            pose={releaseState === "escalated" ? "serve" : "inspect"}
+                            verdict={releaseState === "escalated" ? "fail" : "pass"}
+                            className="w-12 h-[5.3rem] text-[#4A443A] shrink-0 hidden sm:block"
+                          />
+                          <div>
+                            <span className="text-[10px] font-mono uppercase tracking-[0.16em] text-[#6B6353]">
+                              {releaseState === "escalated"
+                                ? "Escalated"
+                                : releaseState === "changes_requested"
+                                ? "Changes requested"
+                                : "Review window open"}
+                            </span>
+                            <h4 className="text-sm font-semibold text-[#1A160F]">
+                              {releaseState === "escalated"
+                                ? `${money(escrow?.amount ?? milestone.amount)} stays held`
+                                : releaseState === "changes_requested"
+                                ? "Release paused until a new commit passes"
+                                : `${money(escrow?.amount ?? milestone.amount)} releases to ${terms?.receiver ?? receiver}`}
+                            </h4>
+                            <p className="text-xs text-[#6B6353] mt-1">
+                              {releaseState === "escalated"
+                                ? "The client objected again after two upheld objections. The next step is a human arbiter, which is not built yet. The funds stay held in the PayPal authorization."
+                                : releaseState === "changes_requested"
+                                ? "The scope arbiter found an in-scope defect. The freelancer fixes it and submits again; a pass opens a fresh window."
+                                : `The work passed. The client has ${windowSec ? formatWindow(windowSec) : "the review window"} to approve or object with reasons. Silence releases the funds.`}
+                            </p>
+                          </div>
+                        </div>
+                        {releaseState === "review" && (
+                          <div className="text-center shrink-0">
+                            <p className="font-display text-3xl font-bold text-[#1A160F] tabular-nums" aria-live="polite">
+                              {remainingMs === null ? "..." : releaseDue ? "Due" : formatCountdown(remainingMs)}
+                            </p>
+                            <p className="text-[11px] text-[#6B6353]">
+                              {releaseAtMs !== null ? `until release, ${new Date(releaseAtMs).toLocaleString()}` : "loading the window"}
+                            </p>
+                            {windowSec !== undefined && windowSec < 3600 && (
+                              <span className="inline-block mt-1">
+                                <ModeBadge label="Demo window" real={false} />
+                              </span>
+                            )}
+                          </div>
+                        )}
+                      </div>
+
+                      {releaseError && <p className="text-xs text-[#B3402F]">{releaseError}</p>}
+                      {!releaseRecord && verificationResult.reviewError && (
+                        <p className="text-xs text-[#B3402F]">{verificationResult.reviewError}</p>
+                      )}
+                      {releaseRecord?.lastError && releaseRecord.state === "review" && (
+                        <p className="text-xs text-[#B3402F]">
+                          {releaseRecord.capture
+                            ? `The client's payment was captured, but the payout to the freelancer failed: ${releaseRecord.lastError.message}. The next check retries the payout only.`
+                            : `The last release attempt failed: ${releaseRecord.lastError.message}. The funds stay held and the next check retries.`}
+                        </p>
+                      )}
+
+                      <div className="flex items-start gap-2 text-[11px] text-[#6B6353]">
+                        <ModeBadge label="Demo view" real={false} />
+                        <span>
+                          Both roles are shown on one screen for the demo. In real use each side sees only its own panel, and the client key lives only in
+                          the client&apos;s browser.
+                        </span>
+                      </div>
+
+                      <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+                        {/* Client */}
+                        <div className="p-5 rounded-xl bg-[#F1EAD8] border border-[#1A160F]/20 space-y-3">
+                          <div className="flex items-center justify-between gap-2">
+                            <span className="text-xs font-mono text-[#6B6353] uppercase">Client</span>
+                            <span className="text-[10px] font-mono text-[#6B6353]">
+                              Upheld objections: {upheldCount} of {MAX_UPHELD_OBJECTIONS}
+                            </span>
+                          </div>
+                          {!escrow?.clientKey && (
+                            <p className="text-[11px] text-[#8A6D00]">No client key in this browser, so approve and object are unavailable here.</p>
+                          )}
+                          {releaseState === "review" ? (
+                            <>
+                              <button
+                                onClick={handleApprove}
+                                disabled={!escrow?.clientKey || releaseBusy !== null}
+                                className="w-full py-2.5 rounded-xl bg-[#1A160F] hover:bg-[#332D22] text-[#F7F1E3] font-semibold text-sm flex items-center justify-center gap-2 shadow-accent-glow btn-press disabled:opacity-40"
+                              >
+                                {releaseBusy === "approve" ? (
+                                  <span className="animate-pulse">Releasing...</span>
+                                ) : (
+                                  <>
+                                    <PayoutIcon className="w-4 h-4 [--icon-accent:currentColor]" />
+                                    <span>Approve and release now</span>
+                                  </>
+                                )}
+                              </button>
+                              <div className="space-y-2 pt-2 border-t border-[#1A160F]/10">
+                                <label htmlFor="objection" className="text-xs font-medium text-[#1A160F] block">
+                                  Object with reasons
+                                </label>
+                                <textarea
+                                  id="objection"
+                                  value={objectionText}
+                                  onChange={(e) => setObjectionText(e.target.value)}
+                                  rows={3}
+                                  placeholder="What is wrong, measured against the agreed criteria?"
+                                  className={inputClass}
+                                />
+                                <button
+                                  onClick={handleObject}
+                                  disabled={!escrow?.clientKey || !objectionText.trim() || releaseBusy !== null}
+                                  className="w-full py-2 rounded-lg bg-[#1A160F]/10 hover:bg-[#1A160F]/15 text-[#1A160F] text-xs font-semibold disabled:opacity-40"
+                                >
+                                  {releaseBusy === "object" ? <span className="animate-pulse">The arbiter is reading...</span> : "Send objection to the scope arbiter"}
+                                </button>
+                                <p className="text-[11px] text-[#6B6353]">
+                                  Judged against the signed criteria. An in-scope defect pauses the release. A request for new work is recorded but does not stop
+                                  the clock. After {MAX_UPHELD_OBJECTIONS} upheld objections, another one escalates.
+                                </p>
+                              </div>
+                            </>
+                          ) : (
+                            <p className="text-xs text-[#4A443A]">
+                              {releaseState === "escalated"
+                                ? "Escalated to a human arbiter (not built yet). Nothing is captured while it waits."
+                                : "Waiting for the freelancer's new commit. Approve and object open again with the next review window."}
+                            </p>
+                          )}
+                          {lastArbiter && (
+                            <div className="space-y-1">
+                              <p className="text-[10px] font-mono uppercase text-[#6B6353]">Arbiter on your last objection</p>
+                              <ArbiterCard result={lastArbiter} />
+                              {lastArbiter.classification === "OUT_OF_SCOPE_EXPANSION" && (
+                                <p className="text-[11px] text-[#6B6353]">
+                                  The review clock keeps running. Agree the add-on as a new milestone with its own hold.
+                                </p>
+                              )}
+                            </div>
+                          )}
+                        </div>
+
+                        {/* Freelancer */}
+                        <div className="p-5 rounded-xl bg-[#FFFDF4] border border-[#1A160F]/20 space-y-3">
+                          <span className="text-xs font-mono text-[#44560A] uppercase">Freelancer</span>
+                          {releaseState === "changes_requested" ? (
+                            <>
+                              <p className="text-xs text-[#4A443A]">
+                                The client&apos;s objection was upheld. Fix the in-scope items, push a new commit, and submit it for verification again.
+                              </p>
+                              <button
+                                onClick={() => setCurrentStep(2)}
+                                className="w-full py-2.5 rounded-xl bg-[#1A160F] hover:bg-[#332D22] text-[#F7F1E3] font-semibold text-sm flex items-center justify-center gap-2 shadow-accent-glow btn-press group"
+                              >
+                                <span>Submit a new commit</span>
+                                <ArrowRightIcon className="w-4 h-4 transition-transform duration-300 group-hover:translate-x-1" />
+                              </button>
+                            </>
+                          ) : releaseState === "escalated" ? (
+                            <p className="text-xs text-[#4A443A]">
+                              This milestone needs a human arbiter, which D&apos;accord does not have yet. The funds stay held; nothing is paid or refunded
+                              automatically.
+                            </p>
+                          ) : (
+                            <>
+                              <p className="text-xs text-[#4A443A]">
+                                If the client does nothing, you can claim the payment when the window ends. It always goes to the payee signed into the hold.
+                              </p>
+                              <button
+                                onClick={handleClaim}
+                                disabled={!releaseDue || releaseBusy !== null}
+                                className="w-full py-2.5 rounded-xl bg-[#A8D912] hover:bg-[#B6E52A] text-[#1A160F] border-[1.5px] border-[#1A160F] font-semibold text-sm flex items-center justify-center gap-2 btn-press disabled:opacity-40"
+                              >
+                                {releaseBusy === "claim" ? (
+                                  <span className="animate-pulse">Claiming...</span>
+                                ) : releaseDue ? (
+                                  "Claim payment"
+                                ) : (
+                                  `Claim payment in ${remainingMs === null ? "..." : formatCountdown(remainingMs)}`
+                                )}
+                              </button>
+                            </>
+                          )}
+                          {releaseRecord && releaseRecord.objections.length > 0 && (
+                            <div className="space-y-2 pt-2 border-t border-[#1A160F]/10">
+                              <p className="text-[10px] font-mono uppercase text-[#6B6353]">Client objections so far</p>
+                              {releaseRecord.objections.map((o, i) => (
+                                <ArbiterCard key={`${String(o.at)}-${i}`} result={o} />
+                              ))}
+                            </div>
+                          )}
+                        </div>
+                      </div>
+
+                      <p className="text-[11px] text-[#6B6353]">
+                        The page checks the window every 10 seconds. A daily server sweep also releases due milestones when nobody has the page open.
+                        {storeModeInfo === "memory" && " This instance keeps the window in memory, so it resets if the server restarts."}
+                      </p>
+                    </div>
+                  ) : (
+                  <div className="space-y-2">
                   <div className="p-5 rounded-xl bg-[#FFFDF4] border-[1.5px] border-[#1A160F] shadow-paper-sm flex flex-col sm:flex-row items-center justify-between gap-4">
                     <div className="flex items-center gap-4">
                       <Maitre
@@ -1104,6 +1684,11 @@ export default function HomePage() {
                       )}
                     </button>
                   </div>
+                  {verificationResult.verified && verificationResult.review?.windowEnabled === false && (
+                    <p className="text-[11px] text-[#6B6353]">Review window needs a datastore; this deployment pays out right after verification.</p>
+                  )}
+                  </div>
+                  )}
                 </div>
               )}
 
@@ -1116,9 +1701,20 @@ export default function HomePage() {
                     </div>
                     <h2 className="font-display text-2xl font-bold text-[#1A160F]">Payment released</h2>
                     <p className="text-xs text-[#6B6353] mt-1">
-                      Capture and payout requests completed in {(payout.receipt.elapsedMs / 1000).toFixed(1)}s. PayPal reports the batch as{" "}
-                      {payout.receipt.batchStatus}.
+                      {payout.mode === "simulated"
+                        ? `Simulated batch status: ${payout.receipt.batchStatus}. PayPal was not called.`
+                        : `${typeof payout.receipt.elapsedMs === "number"
+                            ? `Capture and payout requests completed in ${(payout.receipt.elapsedMs / 1000).toFixed(1)}s. `
+                            : ""}PayPal reports the batch as ${payout.receipt.batchStatus}.`}
                     </p>
+                    {payout.releasedBy && (
+                      <div className="flex items-center gap-3 mt-3">
+                        <Maitre pose="serve" verdict="pass" className="w-10 h-[4.4rem] text-[#4A443A] shrink-0" />
+                        <p className="text-sm text-[#1A160F]">
+                          Released by: <span className="font-semibold">{RELEASED_BY_LABEL[payout.releasedBy as ReleasedBy] ?? payout.releasedBy}</span>
+                        </p>
+                      </div>
+                    )}
                   </div>
 
                   <div className="max-w-2xl mx-auto p-6 rounded-2xl bg-[#FFFDF4] border-[1.5px] border-[#1A160F] shadow-paper-md space-y-6">
@@ -1137,6 +1733,7 @@ export default function HomePage() {
                         ...(payout.receipt.transactionStatus ? [["Item status", payout.receipt.transactionStatus]] : []),
                         ...(payout.receipt.fee ? [["PayPal fee", `$${payout.receipt.fee}`]] : []),
                         ["Sender batch ID", payout.receipt.senderBatchId],
+                        ...(payout.releasedBy ? [["Released by", RELEASED_BY_LABEL[payout.releasedBy as ReleasedBy] ?? payout.releasedBy]] : []),
                       ].map(([k, v]) => (
                         <div key={k} className="flex justify-between gap-3">
                           <span className="text-[#6B6353]">{k}</span>
@@ -1148,8 +1745,9 @@ export default function HomePage() {
                     <div className="p-4 rounded-xl bg-[#1A160F]/[0.03] border border-[#1A160F]/20 flex items-start gap-2 text-xs text-[#4A443A]">
                       <HourglassIcon className="w-4 h-4 text-[#44560A] shrink-0" />
                       <span>
-                        On Upwork, fixed-price milestones wait for the client to approve, or for the 14-day review period to run out. Here the release
-                        follows the verified evidence.
+                        {payout.releasedBy
+                          ? "On Upwork, fixed-price milestones wait for the client to approve, or for the 14-day review period to run out. Here the review window starts only after the work is verified, and objections are judged against the agreed criteria."
+                          : "On Upwork, fixed-price milestones wait for the client to approve, or for the 14-day review period to run out. Here the release follows the verified evidence."}
                       </span>
                     </div>
 
@@ -1300,8 +1898,8 @@ export default function HomePage() {
             <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4">
               {[
                 ["Orders v2", "Each milestone is a PayPal order with intent AUTHORIZE. The client approves it; PayPal holds the funds (honored 3 days, valid 29)."],
-                ["Authorizations", "When verification passes, D'accord captures the authorization. Before that, nothing is charged."],
-                ["Payouts v1", "The captured amount goes to the freelancer's PayPal email. The batch ID is derived from the evidence hash, so one verification pays once."],
+                ["Authorizations", "When verification passes and the client's review window closes, D'accord captures the authorization. Before that, nothing is charged."],
+                ["Payouts v1", "The captured amount goes to the freelancer's PayPal email. The batch ID is derived from the authorization, so one hold pays once."],
                 ["Webhooks", "Events arrive at /api/paypal/webhook and are checked with PayPal's verify-webhook-signature API before they are trusted."],
               ].map(([title, body]) => (
                 <div key={title} className="p-5 rounded-xl bg-[#FFFDF4] border border-[#1A160F]/20 space-y-2">
@@ -1338,7 +1936,7 @@ export default function HomePage() {
                   <tbody className="divide-y divide-[#1A160F]/10">
                     {[
                       ["Who decides it's done", "The client approves", "Criteria agreed up front, checked against the PR, CI and live URL"],
-                      ["Silent client", "Wait for the review period to run out (14 days on Upwork)", "Release as soon as verification passes"],
+                      ["Silent client", "Wait for the review period to run out (14 days on Upwork)", "Verified work releases automatically after a 48-hour review window (needs a datastore on the deployment)"],
                       ["Scope creep", "Negotiated while the payment waits", "Out-of-scope requests become a new milestone; verified work still pays"],
                       ["Fees", "Marketplace service fee", "PayPal processing and payout fees; no platform fee in this prototype"],
                     ].map(([row, a, b]) => (
