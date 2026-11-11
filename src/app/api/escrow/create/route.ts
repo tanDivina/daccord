@@ -1,14 +1,24 @@
 import { NextResponse } from "next/server";
 import { createAuthorizeOrder, paypalConfigured, PayPalError } from "@/lib/paypal";
+import { grantCommitment, parseGrantInput } from "@/lib/grant";
 
 // Creates a PayPal order with intent AUTHORIZE for one milestone. The client
 // approves it in the PayPal popup; nothing is captured until verification.
+// The client's terms (criteria, payee, staging URL) are hashed into the
+// order's reference_id so the authorize step can only grant those terms.
 export async function POST(req: Request) {
-  const { milestoneId, amount, contractTitle, simulate } = await req.json();
+  const body = await req.json();
+  const { amount, contractTitle, simulate } = body;
   const value = Number(amount);
-  if (!milestoneId || !Number.isFinite(value) || value <= 0 || value > 10_000) {
+  if (!Number.isFinite(value) || value <= 0 || value > 10_000) {
     return NextResponse.json({ success: false, error: "Invalid milestone or amount" }, { status: 400 });
   }
+
+  const input = parseGrantInput(body);
+  if (!input.ok) {
+    return NextResponse.json({ success: false, error: input.error }, { status: 400 });
+  }
+  const milestoneId = input.value.milestone.id;
 
   if (simulate || !paypalConfigured()) {
     return NextResponse.json({ success: true, mode: "simulated", orderId: `SIM-ORDER-${Date.now()}` });
@@ -17,7 +27,7 @@ export async function POST(req: Request) {
   try {
     const order = await createAuthorizeOrder({
       amount: value,
-      referenceId: String(milestoneId).slice(0, 256),
+      referenceId: grantCommitment(input.value),
       description: `D'accord milestone ${milestoneId}: ${contractTitle ?? "Contract"}`,
     });
     return NextResponse.json({ success: true, mode: "paypal", orderId: order.id });

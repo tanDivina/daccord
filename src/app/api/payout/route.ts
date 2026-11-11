@@ -6,7 +6,10 @@ export const maxDuration = 30;
 
 // Releases a verified milestone: captures the client's authorization, then
 // pays the contractor through Payouts. Amount, receiver and authorization all
-// come from the signed attestation, never from the request body.
+// come from the signed attestation, never from the request body. /api/verify
+// signs an attestation only for a valid milestone grant, and copies those three
+// fields straight from the grant, so they match what the client funded.
+// contractTitle from the body is used only as text in the payout note.
 export async function POST(req: Request) {
   if (!signingConfigured()) {
     return NextResponse.json({ success: false, error: "Payouts are disabled: DACCORD_SIGNING_SECRET is not set" }, { status: 503 });

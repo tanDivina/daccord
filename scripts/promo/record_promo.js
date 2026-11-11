@@ -211,6 +211,9 @@ async function main() {
   mark('hold'); console.log('Scene 3: hold');
   speak('n_hold');
   await sleep(600);
+  // The client fixes the payee and the staging URL before the hold; they are signed into the grant.
+  await typeInto('PayPal email (payee)', RECEIVER);
+  await typeInto('Staging URL for health checks', STAGING_URL);
   await clickOn('Simulate funding', 650);
   await waitText('Authorization ID', 30000);
   await settle(0.5);
@@ -219,9 +222,7 @@ async function main() {
   mark('submit'); console.log('Scene 4: submit evidence');
   speak('n_submit');
   await typeInto('GitHub PR URL', PR_URL);
-  await typeInto('Staging URL', STAGING_URL);
   await typeInto('Notes for the client', 'Milestone 2 ready: webhook verification + health endpoint live on staging.');
-  await typeInto('Your PayPal email', RECEIVER);
   await settle(0.4);
   await clickOn('Submit for verification', 550);
   mark('verify_start'); console.log('Scene 5: verifying');

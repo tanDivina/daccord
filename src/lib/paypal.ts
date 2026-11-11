@@ -97,6 +97,16 @@ export async function createAuthorizeOrder(opts: {
   });
 }
 
+/** Reads an order without changing it (used to check reference_id before authorizing). */
+export async function getOrder(orderId: string) {
+  const order = await call<any>("GET", `/v2/checkout/orders/${encodeURIComponent(orderId)}`);
+  return {
+    id: order.id as string,
+    status: order.status as string,
+    referenceId: order.purchase_units?.[0]?.reference_id as string | undefined,
+  };
+}
+
 export async function authorizeOrder(orderId: string) {
   const order = await call<any>(
     "POST",

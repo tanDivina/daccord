@@ -27,10 +27,22 @@ ${UNTRUSTED_RULE}`;
 // Fallback when no model is configured: phrase matching, labeled as such.
 const EXPANSION_PHRASES = ["also add", "also build", "can you also", "can we also", "new feature", "mobile app", "admin dashboard", "redesign", "additional pages"];
 
+// Advisory only: this route classifies a revision request and drafts an add-on
+// milestone. It never reads or signs a grant or attestation and never calls
+// PayPal, so nothing it returns can capture, release or refund funds.
 export async function POST(req: Request) {
-  const { milestone, revisionRequest } = (await req.json()) as { milestone?: Milestone; revisionRequest?: string };
+  const { milestone, revisionRequest } = ((await req.json().catch(() => ({}))) ?? {}) as {
+    milestone?: Milestone;
+    revisionRequest?: string;
+  };
   const request = String(revisionRequest ?? "").slice(0, 4000);
-  if (!milestone || !request.trim()) {
+  if (
+    !milestone ||
+    !Array.isArray(milestone.verifiableCriteria) ||
+    milestone.verifiableCriteria.length > 20 ||
+    JSON.stringify(milestone).length > 20_000 ||
+    !request.trim()
+  ) {
     return NextResponse.json({ success: false, error: "milestone and revisionRequest are required" }, { status: 400 });
   }
 

@@ -36,7 +36,28 @@ interface Escrow {
   amount: number;
   expirationTime?: string;
   payerEmail?: string;
+  /** Signed milestone grant from /api/escrow/authorize. */
+  grant?: string;
 }
+
+/** Read-only view of the grant's payload for display. The server checks the signature. */
+function grantTerms(token?: string): { receiver: string; stagingUrl?: string; repo?: string; amount: number } | null {
+  if (!token) return null;
+  try {
+    const b64 = token.split(".")[0].replace(/-/g, "+").replace(/_/g, "/");
+    const json = decodeURIComponent(
+      Array.from(atob(b64), (c) => "%" + c.charCodeAt(0).toString(16).padStart(2, "0")).join("")
+    );
+    const g = JSON.parse(json);
+    return typeof g.receiver === "string"
+      ? { receiver: g.receiver, stagingUrl: g.stagingUrl, repo: g.repo, amount: g.amount }
+      : null;
+  } catch {
+    return null;
+  }
+}
+
+const EMAIL_RE = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
 
 const SAMPLE_CODE = `// src/webhooks/paypal.ts
 export async function handlePayPalWebhook(req: Request) {
@@ -292,6 +313,10 @@ export default function HomePage() {
 
   const [prUrl, setPrUrl] = useState("");
   const [stagingUrl, setStagingUrl] = useState("");
+  const [repo, setRepo] = useState("");
+  // True once a PayPal order was created with the current terms: they are then
+  // locked so the terms sent at approval match the order's commitment.
+  const [orderStarted, setOrderStarted] = useState(false);
   const [codePayload, setCodePayload] = useState(SAMPLE_CODE);
   const [notes, setNotes] = useState("");
   const [receiver, setReceiver] = useState("");
@@ -331,6 +356,15 @@ export default function HomePage() {
 
   const milestone: Milestone | undefined = contract?.milestones[activeIdx] ?? contract?.milestones[0];
   const paypalReal = status?.paypal === "sandbox" || status?.paypal === "live";
+  const terms = grantTerms(escrow?.grant);
+  const receiverValid = EMAIL_RE.test(receiver.trim());
+  // An endpoint criterion without its own probe URL is checked against the staging URL.
+  const needsStaging = Boolean(
+    milestone?.verifiableCriteria.some((c) => c.verificationType === "endpoint_health" && !c.probeUrl)
+  );
+  const fundingReady = receiverValid && (!needsStaging || stagingUrl.trim().length > 0);
+  const termsRef = useRef({ receiver, stagingUrl, repo });
+  termsRef.current = { receiver, stagingUrl, repo };
 
   useEffect(() => {
     fetch("/api/status").then((r) => r.json()).then(setStatus).catch(() => null);
@@ -361,6 +395,7 @@ export default function HomePage() {
 
   const resetFlow = () => {
     setCurrentStep(1);
+    setOrderStarted(false);
     setEscrow(null);
     setEscrowError(null);
     setVerificationResult(null);
@@ -388,18 +423,31 @@ export default function HomePage() {
     }
   };
 
+  // The client's terms for this hold. Read through a ref so the PayPal Buttons,
+  // rendered once, always send the latest payee and staging URL.
+  const grantBody = () => ({
+    milestoneId: milestone!.id,
+    milestone: milestone!,
+    amount: milestone!.amount,
+    contractTitle: contract!.title,
+    receiver: termsRef.current.receiver.trim(),
+    stagingUrl: termsRef.current.stagingUrl.trim() || undefined,
+    repo: termsRef.current.repo.trim() || undefined,
+  });
+
   const createOrder = async (): Promise<string> => {
-    const data = await postJson("/api/escrow/create", {
-      milestoneId: milestone!.id,
-      amount: milestone!.amount,
-      contractTitle: contract!.title,
-    });
-    if (!data.success) throw new Error(data.error);
+    if (!EMAIL_RE.test(termsRef.current.receiver.trim())) throw new Error("Enter the contractor's PayPal email first.");
+    const data = await postJson("/api/escrow/create", grantBody());
+    if (!data.success) {
+      setEscrowError(data.error);
+      throw new Error(data.error);
+    }
+    setOrderStarted(true);
     return data.orderId;
   };
 
   const authorize = async (orderId: string) => {
-    const data = await postJson("/api/escrow/authorize", { orderId, amount: milestone!.amount });
+    const data = await postJson("/api/escrow/authorize", { ...grantBody(), orderId });
     if (!data.success) throw new Error(data.error);
     setEscrow(data);
     record([holdRow(milestone!.title, data)]);
@@ -409,16 +457,11 @@ export default function HomePage() {
     setIsFunding(true);
     setEscrowError(null);
     try {
-      const createData = await postJson("/api/escrow/create", {
-        milestoneId: milestone!.id,
-        amount: milestone!.amount,
-        contractTitle: contract!.title,
-        simulate: true,
-      });
+      const createData = await postJson("/api/escrow/create", { ...grantBody(), simulate: true });
       if (!createData.success) throw new Error(createData.error);
       const authData = await postJson("/api/escrow/authorize", {
+        ...grantBody(),
         orderId: createData.orderId,
-        amount: milestone!.amount,
         simulate: true,
       });
       if (!authData.success) throw new Error(authData.error);
@@ -451,7 +494,11 @@ export default function HomePage() {
               setEscrowError(e instanceof Error ? e.message : "Authorization failed");
             }
           },
-          onError: (err: unknown) => setEscrowError(String(err)),
+          onCancel: () => setOrderStarted(false),
+          onError: (err: unknown) => {
+            setOrderStarted(false);
+            setEscrowError(String(err));
+          },
         })
         .render(container);
     };
@@ -480,11 +527,10 @@ export default function HomePage() {
     setIsVerifying(true);
     setVerificationResult(null);
     try {
+      // Criteria, payee, amount and staging URL travel only inside the signed grant.
       const data = await postJson("/api/verify", {
-        milestone,
-        receiver,
-        authorizationId: escrow.authorizationId,
-        submission: { prUrl: prUrl.trim() || undefined, stagingUrl: stagingUrl.trim() || undefined, codePayload, notes },
+        grant: escrow.grant,
+        submission: { prUrl: prUrl.trim() || undefined, codePayload, notes },
       });
       setVerificationResult(data);
       record(verifyRows(milestone.title, milestone.amount, data));
@@ -862,16 +908,53 @@ export default function HomePage() {
                         {escrow && <ModeBadge label={escrow.mode === "simulated" ? "SIMULATED" : `PAYPAL ${escrow.status}`} real={escrow.mode !== "simulated"} />}
                       </div>
 
+                      {!escrow && (
+                        <div className="space-y-2">
+                          <input
+                            value={receiver}
+                            onChange={(e) => setReceiver(e.target.value)}
+                            readOnly={orderStarted}
+                            placeholder="Contractor's PayPal email (payee)"
+                            type="email"
+                            className={inputClass}
+                          />
+                          <input
+                            value={stagingUrl}
+                            onChange={(e) => setStagingUrl(e.target.value)}
+                            readOnly={orderStarted}
+                            placeholder={
+                              needsStaging
+                                ? "Staging URL for health checks (https, required for this milestone)"
+                                : "Staging URL for health checks (https, optional)"
+                            }
+                            className={inputClass}
+                          />
+                          <input
+                            value={repo}
+                            onChange={(e) => setRepo(e.target.value)}
+                            readOnly={orderStarted}
+                            placeholder="GitHub repo the PR must target (owner/name, recommended)"
+                            className={inputClass}
+                          />
+                          <p className="text-[11px] text-[#6B6353]">
+                            Set before the hold. These are signed into the milestone, so the freelancer cannot change them.
+                          </p>
+                        </div>
+                      )}
+
                       {!escrow ? (
                         paypalReal ? (
                           <div className="space-y-2">
-                            <div ref={paypalRef} className="bg-white rounded-lg p-3 min-h-[60px] border border-[#1A160F]/15" />
+                            <div
+                              ref={paypalRef}
+                              className={`bg-white rounded-lg p-3 min-h-[60px] border border-[#1A160F]/15 ${fundingReady ? "" : "opacity-40 pointer-events-none"}`}
+                            />
                             <div className="flex items-center justify-between text-[11px] pt-1">
                               <span className="text-[#6B6353]">Log in with a PayPal sandbox personal account to approve.</span>
                               <button
                                 onClick={simulateFunding}
-                                disabled={isFunding}
-                                className="text-[#44560A] hover:underline font-mono text-[11px] shrink-0"
+                                disabled={isFunding || !fundingReady}
+                                className="text-[#44560A] hover:underline font-mono text-[11px] shrink-0 disabled:opacity-40 disabled:no-underline"
                               >
                                 {isFunding ? "Holding..." : "Simulate funding"}
                               </button>
@@ -885,7 +968,7 @@ export default function HomePage() {
                             </p>
                             <button
                               onClick={simulateFunding}
-                              disabled={isFunding}
+                              disabled={isFunding || !fundingReady}
                               className="w-full py-2.5 rounded-lg bg-[#1A160F]/10 hover:bg-[#1A160F]/15 text-[#1A160F] text-xs font-semibold disabled:opacity-50"
                             >
                               {isFunding ? "Creating hold..." : "Simulate funding"}
@@ -900,6 +983,9 @@ export default function HomePage() {
                             ["Amount held", money(escrow.amount)],
                             ["Hold valid until", escrow.expirationTime ? new Date(escrow.expirationTime).toLocaleDateString() : "n/a"],
                             ...(escrow.payerEmail ? [["Client", escrow.payerEmail]] : []),
+                            ["Payee", terms?.receiver ?? "n/a"],
+                            ["Staging URL", terms?.stagingUrl ?? "none"],
+                            ["Repository", terms?.repo ?? "any"],
                           ].map(([k, v]) => (
                             <div key={k} className="flex justify-between gap-3 py-1 border-b border-[#1A160F]/10">
                               <span className="text-[#6B6353]">{k}</span>
@@ -917,12 +1003,6 @@ export default function HomePage() {
                         {milestone.title} ({money(milestone.amount)})
                       </h4>
                       <input value={prUrl} onChange={(e) => setPrUrl(e.target.value)} placeholder="GitHub PR URL (public repo)" className={inputClass} />
-                      <input
-                        value={stagingUrl}
-                        onChange={(e) => setStagingUrl(e.target.value)}
-                        placeholder="Staging URL for health checks (https)"
-                        className={inputClass}
-                      />
                       <textarea
                         value={codePayload}
                         onChange={(e) => setCodePayload(e.target.value)}
@@ -931,12 +1011,21 @@ export default function HomePage() {
                         placeholder="Or paste code"
                       />
                       <input value={notes} onChange={(e) => setNotes(e.target.value)} placeholder="Notes for the client" className={inputClass} />
-                      <input
-                        value={receiver}
-                        onChange={(e) => setReceiver(e.target.value)}
-                        placeholder="Your PayPal email (sandbox personal account)"
-                        className={inputClass}
-                      />
+                      <div className="rounded-lg border border-dashed border-[#1A160F]/25 px-3 py-2 space-y-1 text-[11px]">
+                        <div className="flex justify-between gap-3">
+                          <span className="text-[#6B6353]">Paid to (locked)</span>
+                          <span className="font-mono text-[#1A160F] break-all text-right">{terms?.receiver ?? "no grant"}</span>
+                        </div>
+                        <div className="flex justify-between gap-3">
+                          <span className="text-[#6B6353]">Staging URL (locked)</span>
+                          <span className="font-mono text-[#1A160F] break-all text-right">{terms?.stagingUrl ?? "none"}</span>
+                        </div>
+                        <div className="flex justify-between gap-3">
+                          <span className="text-[#6B6353]">Repository (locked)</span>
+                          <span className="font-mono text-[#1A160F] break-all text-right">{terms?.repo ?? "any"}</span>
+                        </div>
+                        <p className="text-[#6B6353]">Set by the client and signed with the hold.</p>
+                      </div>
                       <button
                         onClick={handleRunVerification}
                         disabled={isVerifying || !escrow}
@@ -994,7 +1083,7 @@ export default function HomePage() {
                       </h4>
                       <p className="text-xs text-[#6B6353] mt-1">
                         {verificationResult.attestation
-                          ? `Signed release for ${receiver}. Captures the hold, then pays out with PayPal Payouts.`
+                          ? `Signed release for ${terms?.receiver ?? receiver}. Captures the hold, then pays out with PayPal Payouts.`
                           : verificationResult.attestationError}
                       </p>
                       {payout && !payout.success && <p className="text-xs text-[#B3402F] mt-1">{payout.error}</p>}

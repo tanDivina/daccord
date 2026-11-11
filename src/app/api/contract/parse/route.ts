@@ -51,9 +51,9 @@ const PRESET_CONTRACTS: Record<string, Contract> = {
           },
           {
             id: "c2_3",
-            description: "Live health check endpoint deployed to staging returns HTTP 200 with JSON payload",
+            description: "Staging health endpoint applies the migrations, does a database round-trip through the app's db layer and checks PayPal gateway reachability",
             verificationType: "endpoint_health",
-            targetMetric: "GET /api/health returns HTTP 200 within 2000ms",
+            targetMetric: "GET /api/health returns HTTP 200 with a JSON report within 2000ms",
           },
         ],
         status: "funded",

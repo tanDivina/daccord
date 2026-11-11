@@ -149,6 +149,9 @@ async function main() {
   await waitText('Step 2: Hold the funds');
   await page.evaluate(() => document.querySelector('main > div.scroll-mt-44')?.scrollIntoView({ block: 'start' }));
   mark('hold'); speak(REAL ? 'n_hold' : 'n_hold_sim');
+  // The client fixes the payee and the staging URL before the hold; they are signed into the grant.
+  await typeInto('PayPal email (payee)', RECEIVER);
+  await typeInto('Staging URL for health checks', STAGING_URL);
   let stopPopup = null;
   if (REAL) {
     await page.waitForFunction(() => [...document.querySelectorAll('iframe')].some((f) => /paypal/.test(f.src || f.name)), { timeout: 30000 });
@@ -179,9 +182,7 @@ async function main() {
   // ── 3. submit evidence ───────────────────────────────────────────────────
   mark('submit'); speak('n_submit');
   await typeInto('GitHub PR URL', PR_URL);
-  await typeInto('Staging URL', STAGING_URL);
   await typeInto('Notes for the client', 'Milestone 2 ready: Orders v2 authorize and capture, webhook verification, health endpoint live on staging.');
-  await typeInto('Your PayPal email', RECEIVER);
   await settle(0.3);
   await clickOn('Submit for verification', 550);
   mark('verify_start'); await sleep(300); speak('n_verify');
