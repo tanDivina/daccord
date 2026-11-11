@@ -16,18 +16,18 @@
       {
         "fr": "D'accord."
       },
-      "The client's money is held with PayPal before the work starts, and it's released the moment the work is verified. Not whenever the client gets around to it."
+      "The client's money is held with PayPal before the work starts, and it's released once the work is verified and the client's review window has closed."
     ],
     "n_criteria": "It starts with the contract: pass or fail criteria for every milestone, agreed up front. Claude can draft them from a plain job description.",
     "n_hold": "The client funds the milestone with a real PayPal sandbox order, intent authorize. The money is held, not charged.",
     "n_hold_sim": "Here the PayPal hold runs in simulated mode, and the app labels it that way. On the live site, the client approves a real sandbox order.",
     "n_submit": "To get paid, the freelancer doesn't send an invoice. They submit evidence: a real pull request, and a live staging site.",
     "n_verify": "The verifier reads the actual diff and the CI results from GitHub, and checks the staging site itself. Then two Claude reviewers grade every criterion: an evaluator, and a skeptic hunting for mocks, stubs and hidden instructions. Both have to agree.",
-    "n_release": "A pass signs an attestation that unlocks exactly one payout.",
+    "n_release": "A pass opens the client's review window. Here, we skip ahead to the release.",
     "n_paid": "Then it captures the hold and pays the freelancer through PayPal Payouts. Every ID on this receipt came back from the PayPal sandbox.",
     "n_paid_sim": "Then it captures the hold and pays the freelancer through PayPal Payouts.",
     "n_threat": "Now let's try to cheat it. Instructions hidden in a code comment are stopped before any model reads them. A polite note saying the client waived the criteria slips past keyword filters, but not past the two reviewers.",
-    "n_arch": "Under the hood: PayPal Orders version two, Payouts, and webhooks checked by PayPal's own signature verification. And because the payout batch ID comes from the evidence hash, one verification can never pay twice.",
+    "n_arch": "Under the hood: PayPal Orders version two, Payouts, and webhooks checked by PayPal's own signature verification. And because the payout batch ID comes from the PayPal authorization, one hold can never pay twice.",
     "n_close": [
       {
         "fr": "D'accord."

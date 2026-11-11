@@ -23,7 +23,7 @@ if (REAL && tl.waits.payout) measured.push(`Capture plus PayPal Payout after rel
 
 const description = `Freelancers do the work, then wait to get paid. In the Freelancers Union's national survey, the average longest wait was 98 days.
 
-D'accord holds the client's money with PayPal before the work starts, and releases it the moment the delivered work is verified against criteria both sides agreed on. Not whenever the client gets around to it.
+D'accord holds the client's money with PayPal before the work starts, and releases it once the delivered work is verified against criteria both sides agreed on. The client then has a 48-hour review window: approve early, or object with reasons and an AI arbiter checks the objection against the agreed criteria. If the client stays silent, the freelancer gets paid. (The review window shipped after this demo was recorded; the clip at the end covers it.)
 
 ${real}
 
@@ -33,7 +33,8 @@ The pull request the verifier grades: https://github.com/tanDivina/paypal-orders
 
 Built with:
 - PayPal Orders v2 (intent AUTHORIZE, then capture)
-- PayPal Payouts, with the batch ID derived from the evidence hash so one verification pays once
+- PayPal Payouts, with the batch ID derived from the PayPal authorization so one hold pays once
+- A 48-hour client review window with a scope arbiter and automatic release, backed by Upstash Redis and a daily cron sweep
 - PayPal Webhooks, checked with verify-webhook-signature
 - Claude (Anthropic API): contract drafting, an evaluator and an adversarial skeptic per criterion
 - GitHub API (PR diff and check runs), Next.js on Vercel
