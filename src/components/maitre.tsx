@@ -1,7 +1,7 @@
 import type { SVGProps } from "react";
 
 // The Maître: D'accord's face. In France a notary is addressed as "Maître",
-// and a maître d' is the person who seats two parties at the same table —
+// and a maître d' is the person who seats two parties at the same table:
 // both jobs this product does. Filled-ink illustration: solid tailcoat,
 // monocle (he inspects the work), pencil moustache, the contract over his
 // forearm, the verdict seal served on a tray. Drawn by hand; keep every

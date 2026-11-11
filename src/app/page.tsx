@@ -138,7 +138,7 @@ function VerificationPanel({ result }: { result: any }) {
         <div className="flex items-center gap-3 p-3 rounded-lg bg-[#1A160F]/[0.03] border border-[#1A160F]/10">
           <Maitre pose="serve" verdict="fail" className="w-10 h-[4.4rem] text-[#6B6353] shrink-0" />
           <p className="text-xs text-[#6B6353]">
-            The Maître sends this back to the kitchen. The hold stays in place — fix the findings below and resubmit.
+            The Maître sends this back to the kitchen. The hold stays in place. Fix the findings below and resubmit.
           </p>
         </div>
       )}
@@ -638,7 +638,7 @@ export default function HomePage() {
           <div className="relative w-full max-w-md lg:w-[470px] h-[440px] shrink-0 hidden md:block">
             <SealCheckIcon className="appear-fade absolute -right-4 -top-6 w-72 h-72 opacity-[0.08] text-[#1A160F] [--icon-accent:#1A160F]" style={{ "--d": "1.2s" } as React.CSSProperties} aria-hidden="true" />
             <div className="appear-receipt absolute left-0 top-10 w-[262px] bg-[#FFFDF4] border-[1.5px] border-[#1A160F] shadow-paper-md p-5 -rotate-2">
-              <p className="text-[10px] font-mono font-bold tracking-[0.16em] text-[#6B6353] text-center">L&apos;ADDITION &mdash; MILESTONE N&ordm;2</p>
+              <p className="text-[10px] font-mono font-bold tracking-[0.16em] text-[#6B6353] text-center">L&apos;ADDITION &middot; MILESTONE N&ordm;2</p>
               <p className="font-display text-base font-semibold text-center mt-2 mb-3 leading-snug text-[#1A160F]">PayPal Orders v2 &amp; Webhook Engine</p>
               <div className="space-y-1.5 text-xs text-[#4A443A]">
                 {["12/12 integration tests", "Webhook signatures verified", "Staging health 200 OK"].map((row, i) => (
@@ -655,7 +655,7 @@ export default function HomePage() {
               </div>
               <div className="appear-stamp flex items-center justify-center gap-1.5 mt-3">
                 <SealCheckIcon className="w-4 h-4 text-[#44560A]" />
-                <span className="text-[9px] font-mono font-bold tracking-[0.16em] text-[#6B6353]">D&apos;ACCORD &mdash; PAID</span>
+                <span className="text-[9px] font-mono font-bold tracking-[0.16em] text-[#6B6353]">D&apos;ACCORD &middot; PAID</span>
               </div>
             </div>
             <Maitre pose="serve" className="appear absolute right-6 bottom-0 w-[215px] h-[296px]" style={{ "--d": "1.1s" } as React.CSSProperties} />
@@ -673,7 +673,7 @@ export default function HomePage() {
             ))}
           </div>
           <p className="text-center text-[11px] text-[#6B6353]/80 mt-2.5">
-            Freelancers Union, &ldquo;The Costs of Nonpayment&rdquo; &mdash; national survey of 5,358 U.S. freelancers (2015).
+            Freelancers Union, &ldquo;The Costs of Nonpayment,&rdquo; national survey of 5,358 U.S. freelancers (2015).
           </p>
         </div>
 
@@ -1066,7 +1066,7 @@ export default function HomePage() {
 
                     <div className="appear-stamp flex items-center justify-center gap-2" style={{ "--d": "0.9s" } as React.CSSProperties}>
                       <SealCheckIcon className="w-5 h-5 text-[#44560A]" />
-                      <span className="text-[10px] font-mono tracking-[0.2em] text-[#6B6353]">D&apos;ACCORD &mdash; PAID</span>
+                      <span className="text-[10px] font-mono tracking-[0.2em] text-[#6B6353]">D&apos;ACCORD &middot; PAID</span>
                     </div>
 
                     <div className="flex justify-center pt-2">
